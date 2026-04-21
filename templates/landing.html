@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}DriveLoad — Download Google Drive Videos{% endblock %}
+{% block head %}
+<style>
+.hero{padding:90px 0 70px;text-align:center;}
+.hero h1{font-size:3rem;font-weight:800;letter-spacing:-.04em;line-height:1.15;
+         background:linear-gradient(135deg,#fff 30%,#a78bfa);
+         -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+         margin-bottom:18px;}
+.hero p{font-size:1.15rem;color:var(--sub);max-width:560px;margin:0 auto 32px;line-height:1.7;}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+.hero-note{margin-top:14px;font-size:.82rem;color:var(--muted);}
+
+/* features */
+.section{padding:60px 0;}
+.section-label{text-align:center;font-size:.8rem;font-weight:700;
+               text-transform:uppercase;letter-spacing:.12em;
+               color:var(--primary);margin-bottom:10px;}
+.section-title{text-align:center;font-size:2rem;font-weight:800;
+               letter-spacing:-.03em;margin-bottom:12px;}
+.section-sub{text-align:center;color:var(--sub);max-width:480px;
+             margin:0 auto 48px;line-height:1.7;}
+.features-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px;}
+.feature-card{background:var(--card);border:1px solid var(--border);
+              border-radius:var(--radius);padding:24px;}
+.feature-icon{font-size:1.8rem;margin-bottom:12px;}
+.feature-card h3{font-size:1rem;font-weight:700;margin-bottom:8px;}
+.feature-card p{font-size:.875rem;color:var(--sub);line-height:1.6;}
+
+/* pricing */
+.pricing-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+              gap:24px;max-width:680px;margin:0 auto;}
+.plan-card{background:var(--card);border:1px solid var(--border);
+           border-radius:var(--radius);padding:28px;position:relative;}
+.plan-card.featured{border-color:var(--primary);
+                    box-shadow:0 0 0 1px var(--primary),0 8px 32px #6366f122;}
+.plan-popular{position:absolute;top:-14px;left:50%;transform:translateX(-50%);
+              background:var(--primary);color:#fff;font-size:.75rem;font-weight:700;
+              padding:3px 16px;border-radius:99px;white-space:nowrap;}
+.plan-name{font-size:.85rem;font-weight:700;text-transform:uppercase;
+           letter-spacing:.1em;color:var(--sub);margin-bottom:8px;}
+.plan-price{font-size:2.5rem;font-weight:800;letter-spacing:-.04em;margin-bottom:4px;}
+.plan-price span{font-size:1rem;font-weight:500;color:var(--sub);}
+.plan-desc{font-size:.85rem;color:var(--sub);margin-bottom:20px;min-height:40px;}
+.plan-features{list-style:none;margin-bottom:24px;}
+.plan-features li{font-size:.875rem;padding:6px 0;border-bottom:1px solid var(--border);
+                  color:var(--sub);display:flex;align-items:center;gap:8px;}
+.plan-features li:last-child{border:none;}
+.check{color:var(--green);}
+.cross{color:var(--muted);}
+
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:24px;}
+.step{text-align:center;padding:16px;}
+.step-num{width:44px;height:44px;border-radius:50%;background:var(--primary);
+          color:#fff;font-size:1.1rem;font-weight:800;display:flex;
+          align-items:center;justify-content:center;margin:0 auto 14px;}
+.step h3{font-size:.95rem;font-weight:700;margin-bottom:8px;}
+.step p{font-size:.85rem;color:var(--sub);line-height:1.6;}
+
+/* cta */
+.cta{background:linear-gradient(135deg,#1e1b4b,#0d0d1a);
+     border:1px solid var(--border);border-radius:20px;
+     padding:60px 40px;text-align:center;margin:60px 0;}
+.cta h2{font-size:2rem;font-weight:800;margin-bottom:12px;}
+.cta p{color:var(--sub);margin-bottom:28px;}
+
+/* footer */
+footer{border-top:1px solid var(--border);padding:24px;text-align:center;
+       font-size:.8rem;color:var(--muted);}
+</style>
+{% endblock %}
+{% block body %}
+<div class="container">
+
+  <!-- hero -->
+  <div class="hero">
+    <h1>Download Google Drive<br>Videos Instantly</h1>
+    <p>Access view-only Google Drive videos and download them at full speed with multi-threaded technology. No limits on Pro.</p>
+    <div class="hero-btns">
+      <a href="/register" class="btn btn-primary" style="padding:12px 28px;font-size:1rem;">
+        Start for Free
+      </a>
+      <a href="/pricing" class="btn btn-outline" style="padding:12px 28px;font-size:1rem;">
+        See Pricing
+      </a>
+    </div>
+    <p class="hero-note">Free plan includes 3 downloads/month. No credit card required.</p>
+  </div>
+
+  <!-- features -->
+  <div class="section">
+    <p class="section-label">Features</p>
+    <h2 class="section-title">Everything you need</h2>
+    <p class="section-sub">Built for speed, designed for simplicity.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Multi-threaded Downloads</h3>
+        <p>Up to 8 parallel threads download your video in chunks for maximum speed.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📋</div>
+        <h3>Download Queue</h3>
+        <p>Add multiple Drive URLs to a queue and download them all in one go.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔑</div>
+        <h3>Cookie Authentication</h3>
+        <p>Your Google cookies are saved securely per account — paste once, use forever.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <h3>Live Progress</h3>
+        <p>Real-time progress bar shows download speed and completion percentage.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📁</div>
+        <h3>Download History</h3>
+        <p>See all your past downloads with file names, sizes, and timestamps.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🔒</div>
+        <h3>Secure Accounts</h3>
+        <p>Your data is private. Cookies stored per-account, passwords hashed.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- how it works -->
+  <div class="section" style="border-top:1px solid var(--border);">
+    <p class="section-label">How it works</p>
+    <h2 class="section-title">Three simple steps</h2>
+    <p class="section-sub">Get started in under a minute.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Export Cookies</h3>
+        <p>Use the Cookie-Editor browser extension to export your Google Drive cookies as JSON.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Paste & Queue</h3>
+        <p>Paste your cookies once, then add as many Drive video URLs as you need.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Download</h3>
+        <p>Hit Download and watch the real-time progress as your videos are saved locally.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- pricing preview -->
+  <div class="section" style="border-top:1px solid var(--border);">
+    <p class="section-label">Pricing</p>
+    <h2 class="section-title">Simple, honest pricing</h2>
+    <p class="section-sub">Start free, upgrade when you need more.</p>
+    <div class="pricing-grid">
+      <div class="plan-card">
+        <p class="plan-name">Free</p>
+        <p class="plan-price">$0 <span>/ month</span></p>
+        <p class="plan-desc">For occasional use.</p>
+        <ul class="plan-features">
+          <li><span class="check">✓</span> 3 downloads / month</li>
+          <li><span class="check">✓</span> Multi-threaded speed</li>
+          <li><span class="check">✓</span> Download queue</li>
+          <li><span class="cross">✗</span> Unlimited downloads</li>
+          <li><span class="cross">✗</span> Priority support</li>
+        </ul>
+        <a href="/register" class="btn btn-outline w-full" style="justify-content:center;">Get started free</a>
+      </div>
+      <div class="plan-card featured">
+        <span class="plan-popular">Most Popular</span>
+        <p class="plan-name">Pro</p>
+        <p class="plan-price">$9.99 <span>/ month</span></p>
+        <p class="plan-desc">For power users and researchers.</p>
+        <ul class="plan-features">
+          <li><span class="check">✓</span> Unlimited downloads</li>
+          <li><span class="check">✓</span> Multi-threaded speed</li>
+          <li><span class="check">✓</span> Download queue</li>
+          <li><span class="check">✓</span> Download history</li>
+          <li><span class="check">✓</span> Priority support</li>
+        </ul>
+        <a href="/billing/checkout" class="btn btn-primary w-full" style="justify-content:center;">Upgrade to Pro</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- cta -->
+  <div class="cta">
+    <h2>Ready to get started?</h2>
+    <p>Join for free. No credit card required.</p>
+    <a href="/register" class="btn btn-primary" style="padding:12px 32px;font-size:1rem;">
+      Create free account
+    </a>
+  </div>
+
+</div>
+
+<footer>
+  © 2026 DriveLoad. Built for educational use.
+</footer>
+{% endblock %}

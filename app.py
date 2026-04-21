@@ -1,0 +1,589 @@
+import json, os, re, threading, queue as q_mod
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, date
+from pathlib import Path
+from urllib.parse import unquote, urlparse, parse_qs
+
+import requests as http
+import stripe
+from dotenv import load_dotenv
+from flask import (Flask, Response, flash, jsonify, redirect,
+                   render_template, request, stream_with_context, url_for)
+from flask_login import (LoginManager, UserMixin, current_user,
+                         login_required, login_user, logout_user)
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
+
+load_dotenv()
+
+# ── app ───────────────────────────────────────────────────────────────────────
+app = Flask(__name__)
+app.config.update(
+    SECRET_KEY            = os.getenv("SECRET_KEY", "change-me-before-deploy"),
+    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///gdrive.db"),
+    SQLALCHEMY_TRACK_MODIFICATIONS = False,
+)
+
+stripe.api_key         = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PRICE_ID        = os.getenv("STRIPE_PRICE_ID", "")
+STRIPE_WEBHOOK_SECRET  = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+APP_URL                = os.getenv("APP_URL", "http://localhost:8080")
+DOWNLOAD_DIR           = Path(os.getenv("DOWNLOAD_DIR", str(Path.home() / "Downloads")))
+FREE_LIMIT             = int(os.getenv("FREE_LIMIT", "3"))
+
+db = SQLAlchemy(app)
+lm = LoginManager(app)
+lm.login_view = "login"
+lm.login_message = "Please log in to access the downloader."
+lm.login_message_category = "info"
+
+
+# ── models ────────────────────────────────────────────────────────────────────
+class User(UserMixin, db.Model):
+    id                     = db.Column(db.Integer, primary_key=True)
+    name                   = db.Column(db.String(120), nullable=False)
+    email                  = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash          = db.Column(db.String(255), nullable=False)
+    plan                   = db.Column(db.String(20), default="free")
+    stripe_customer_id     = db.Column(db.String(120))
+    stripe_subscription_id = db.Column(db.String(120))
+    cookies_json           = db.Column(db.Text, default="{}")
+    downloads_this_month   = db.Column(db.Integer, default=0)
+    downloads_reset_date   = db.Column(db.Date, default=date.today)
+    created_at             = db.Column(db.DateTime, default=datetime.utcnow)
+    downloads              = db.relationship("Download", backref="user", lazy=True,
+                                             order_by="Download.created_at.desc()")
+
+    def set_password(self, pw):
+        self.password_hash = generate_password_hash(pw)
+
+    def check_password(self, pw):
+        return check_password_hash(self.password_hash, pw)
+
+    def _reset_if_new_month(self):
+        today = date.today()
+        reset = self.downloads_reset_date
+        if reset is None or reset.month != today.month or reset.year != today.year:
+            self.downloads_this_month = 0
+            self.downloads_reset_date = today
+            db.session.commit()
+
+    def can_download(self):
+        if self.plan == "pro":
+            return True
+        self._reset_if_new_month()
+        return self.downloads_this_month < FREE_LIMIT
+
+    def remaining_downloads(self):
+        if self.plan == "pro":
+            return None          # unlimited
+        self._reset_if_new_month()
+        return max(0, FREE_LIMIT - self.downloads_this_month)
+
+    def increment_downloads(self):
+        self._reset_if_new_month()
+        self.downloads_this_month += 1
+        db.session.commit()
+
+    @property
+    def cookies(self):
+        try:
+            return json.loads(self.cookies_json or "{}")
+        except Exception:
+            return {}
+
+    @cookies.setter
+    def cookies(self, value):
+        self.cookies_json = json.dumps(value)
+
+
+class Download(db.Model):
+    id         = db.Column(db.Integer, primary_key=True)
+    user_id    = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    filename   = db.Column(db.String(500))
+    video_id   = db.Column(db.String(200))
+    size_mb    = db.Column(db.Float)
+    status     = db.Column(db.String(50), default="completed")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+@lm.user_loader
+def load_user(uid):
+    return User.query.get(int(uid))
+
+
+# ── per-user SSE state ────────────────────────────────────────────────────────
+# user_id → {"busy": bool, "status": str, "progress": float, "clients": [Queue]}
+_states: dict[int, dict] = {}
+_lock = threading.Lock()
+
+
+def _get_state(uid: int) -> dict:
+    with _lock:
+        if uid not in _states:
+            _states[uid] = {"busy": False, "status": "Ready",
+                            "progress": 0.0, "clients": []}
+        return _states[uid]
+
+
+def _broadcast(uid: int, data: dict):
+    st = _get_state(uid)
+    msg = f"data: {json.dumps(data)}\n\n"
+    for q in list(st["clients"]):
+        try:
+            q.put_nowait(msg)
+        except Exception:
+            pass
+
+
+def _set_status(uid: int, status: str, progress: float | None = None):
+    st = _get_state(uid)
+    st["status"] = status
+    if progress is not None:
+        st["progress"] = round(progress, 1)
+    _broadcast(uid, {"status": st["status"], "progress": st["progress"]})
+
+
+# ── download helpers ──────────────────────────────────────────────────────────
+def extract_video_id(text: str) -> str:
+    m = re.search(r'/file/d/([a-zA-Z0-9_-]+)', text)
+    if m:
+        return m.group(1)
+    qs = parse_qs(urlparse(text).query)
+    if 'id' in qs:
+        return qs['id'][0]
+    return text.strip()
+
+
+def get_video_info(video_id: str, cookies: dict):
+    url = (f"https://drive.google.com/u/0/get_video_info"
+           f"?docid={video_id}&drive_originator_app=303")
+    r = http.get(url, cookies=cookies, timeout=30)
+    cookies.update(r.cookies.get_dict())
+    video_url = title = None
+    for part in r.text.split("&"):
+        if part.startswith("title=") and not title:
+            title = unquote(part.split("=", 1)[1])
+        elif "videoplayback" in part and not video_url:
+            video_url = unquote(part).split("|")[-1]
+        if video_url and title:
+            break
+    return video_url, title
+
+
+def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
+    try:
+        r = http.get(url, headers={"Range": f"bytes={start}-{end}"},
+                     cookies=cookies, stream=True, timeout=60)
+        if r.status_code in (200, 206):
+            path = os.path.join(tmpdir, f"part_{pnum:04d}.tmp")
+            with open(path, "wb") as f:
+                for chunk in r.iter_content(8192):
+                    if chunk:
+                        f.write(chunk)
+            return pnum, path
+    except Exception:
+        pass
+    return pnum, None
+
+
+def download_video(uid: int, video_url: str, cookies: dict,
+                   out_path: str, threads=8, chunk_mb=6):
+    head = http.head(video_url, cookies=cookies, allow_redirects=True)
+    size = int(head.headers.get("content-length", 0))
+    if not size:
+        raise RuntimeError("Could not determine file size.")
+
+    _set_status(uid, f"Size: {size/1048576:.1f} MB — downloading…", 0)
+    chunk = chunk_mb * 1048576
+    ranges = [(i, min(i + chunk - 1, size - 1), idx)
+              for idx, i in enumerate(range(0, size, chunk))]
+
+    tmpdir = out_path + ".parts"
+    os.makedirs(tmpdir, exist_ok=True)
+    done, total = {}, 0
+
+    with ThreadPoolExecutor(max_workers=threads) as ex:
+        futs = {ex.submit(_dl_chunk, video_url, cookies, s, e, pn, tmpdir): pn
+                for s, e, pn in ranges}
+        for f in as_completed(futs):
+            pn, path = f.result()
+            if path:
+                done[pn] = path
+                total += os.path.getsize(path)
+                pct = total / size * 100
+                _set_status(uid,
+                    f"Downloading… {pct:.1f}%  "
+                    f"({total/1048576:.1f} / {size/1048576:.1f} MB)", pct)
+
+    _set_status(uid, "Merging chunks…", 99)
+    with open(out_path, "wb") as out:
+        for pn in sorted(done):
+            with open(done[pn], "rb") as f:
+                out.write(f.read())
+            os.remove(done[pn])
+    os.rmdir(tmpdir)
+    return size / 1048576
+
+
+def _worker(uid: int, queue: list):
+    total = len(queue)
+    for idx, item in enumerate(queue):
+        vid = item["id"]
+        _set_status(uid, f"[{idx+1}/{total}] Fetching info…", 0)
+        try:
+            with app.app_context():
+                user = User.query.get(uid)
+                if not user or not user.can_download():
+                    _set_status(uid, "Download limit reached. Please upgrade to Pro.")
+                    break
+
+                cookies = dict(user.cookies)
+                video_url, title = get_video_info(vid, cookies)
+                if not video_url:
+                    _set_status(uid, f"[{idx+1}/{total}] Could not get URL — skipped")
+                    continue
+
+                filename = (title or vid).replace("+", " ")
+                if not filename.endswith(".mp4"):
+                    filename += ".mp4"
+                out = str(DOWNLOAD_DIR / filename)
+
+                _set_status(uid, f"[{idx+1}/{total}] {filename}", 0)
+                size_mb = download_video(uid, video_url, cookies, out)
+
+                dl = Download(user_id=uid, filename=filename,
+                              video_id=vid, size_mb=round(size_mb, 1),
+                              status="completed")
+                db.session.add(dl)
+                user.increment_downloads()
+                db.session.commit()
+
+                _set_status(uid, f"[{idx+1}/{total}] Done: {filename}", 100)
+        except Exception as e:
+            _set_status(uid, f"[{idx+1}/{total}] Error: {e}")
+
+    st = _get_state(uid)
+    st["busy"] = False
+    _broadcast(uid, {"status": f"All {total} download(s) complete!",
+                     "progress": 100, "done": True})
+
+
+# ── routes: public ────────────────────────────────────────────────────────────
+@app.route("/")
+def landing():
+    return render_template("landing.html")
+
+
+@app.route("/pricing")
+def pricing():
+    return render_template("pricing.html")
+
+
+# ── routes: auth ──────────────────────────────────────────────────────────────
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+    if request.method == "POST":
+        name  = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        pw    = request.form.get("password", "")
+        if not name or not email or not pw:
+            flash("All fields are required.", "error")
+        elif len(pw) < 6:
+            flash("Password must be at least 6 characters.", "error")
+        elif User.query.filter_by(email=email).first():
+            flash("Email already registered.", "error")
+        else:
+            u = User(name=name, email=email)
+            u.set_password(pw)
+            db.session.add(u)
+            db.session.commit()
+            login_user(u)
+            flash(f"Welcome, {name}!", "success")
+            return redirect(url_for("dashboard"))
+    return render_template("register.html")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for("dashboard"))
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        pw    = request.form.get("password", "")
+        u     = User.query.filter_by(email=email).first()
+        if u and u.check_password(pw):
+            login_user(u, remember=request.form.get("remember") == "on")
+            return redirect(request.args.get("next") or url_for("dashboard"))
+        flash("Invalid email or password.", "error")
+    return render_template("login.html")
+
+
+@app.route("/logout")
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for("landing"))
+
+
+# ── routes: dashboard ─────────────────────────────────────────────────────────
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    history = current_user.downloads[:10]
+    return render_template("dashboard.html", history=history)
+
+
+@app.route("/api/cookies/save", methods=["POST"])
+@login_required
+def api_cookies_save():
+    raw = request.json.get("cookies", "")
+    try:
+        data = json.loads(raw)
+        cookies = ({item["name"]: item["value"] for item in data
+                    if "name" in item} if isinstance(data, list) else data)
+    except Exception as e:
+        return jsonify(ok=False, message=f"Parse error: {e}"), 400
+    if not cookies:
+        return jsonify(ok=False, message="No cookies found in JSON"), 400
+    current_user.cookies = cookies
+    db.session.commit()
+    return jsonify(ok=True, message=f"{len(cookies)} cookies saved")
+
+
+@app.route("/api/cookies/clear", methods=["POST"])
+@login_required
+def api_cookies_clear():
+    current_user.cookies = {}
+    db.session.commit()
+    return jsonify(ok=True, message="Cookies cleared")
+
+
+@app.route("/api/cookies/status")
+@login_required
+def api_cookies_status():
+    n = len(current_user.cookies)
+    return jsonify(ok=bool(n), count=n,
+                   message=f"{n} cookies saved" if n else "No cookies saved")
+
+
+@app.route("/api/queue/add", methods=["POST"])
+@login_required
+def api_queue_add():
+    url = request.json.get("url", "").strip()
+    if not url:
+        return jsonify(ok=False, message="Empty URL"), 400
+    vid  = extract_video_id(url)
+    item = {"url": url, "id": vid}
+    # store queue in session
+    q = _get_session_queue()
+    q.append(item)
+    _set_session_queue(q)
+    return jsonify(ok=True, item=item, queue=q)
+
+
+@app.route("/api/queue/remove", methods=["POST"])
+@login_required
+def api_queue_remove():
+    idx = request.json.get("index")
+    q   = _get_session_queue()
+    if idx is None or not (0 <= idx < len(q)):
+        return jsonify(ok=False, message="Invalid index"), 400
+    q.pop(idx)
+    _set_session_queue(q)
+    return jsonify(ok=True, queue=q)
+
+
+@app.route("/api/queue/clear", methods=["POST"])
+@login_required
+def api_queue_clear():
+    _set_session_queue([])
+    return jsonify(ok=True)
+
+
+@app.route("/api/queue")
+@login_required
+def api_queue():
+    return jsonify(queue=_get_session_queue())
+
+
+@app.route("/api/download/start", methods=["POST"])
+@login_required
+def api_download_start():
+    uid = current_user.id
+    st  = _get_state(uid)
+    if st["busy"]:
+        return jsonify(ok=False, message="Already downloading"), 400
+    if not current_user.cookies:
+        return jsonify(ok=False, message="No cookies saved — paste your cookies first"), 400
+    q = _get_session_queue()
+    if not q:
+        return jsonify(ok=False, message="Queue is empty"), 400
+    if not current_user.can_download():
+        rem = current_user.remaining_downloads()
+        return jsonify(ok=False,
+                       message=f"Free plan limit reached ({FREE_LIMIT}/month). Upgrade to Pro for unlimited downloads."), 403
+    st["busy"] = True
+    threading.Thread(target=_worker, args=(uid, list(q)), daemon=True).start()
+    _set_session_queue([])
+    return jsonify(ok=True)
+
+
+@app.route("/api/events")
+@login_required
+def api_events():
+    uid  = current_user.id
+    st   = _get_state(uid)
+    cq   = q_mod.Queue()
+    st["clients"].append(cq)
+    cq.put_nowait(f"data: {json.dumps({'status': st['status'], 'progress': st['progress']})}\n\n")
+
+    @stream_with_context
+    def generate():
+        try:
+            while True:
+                try:
+                    yield cq.get(timeout=25)
+                except q_mod.Empty:
+                    yield ": ping\n\n"
+        finally:
+            if cq in st["clients"]:
+                st["clients"].remove(cq)
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _get_session_queue() -> list:
+    from flask import session
+    return session.get("queue", [])
+
+
+def _set_session_queue(q: list):
+    from flask import session
+    session["queue"] = q
+    session.modified = True
+
+
+# ── routes: billing (Stripe) ──────────────────────────────────────────────────
+@app.route("/billing/checkout", methods=["POST"])
+@login_required
+def billing_checkout():
+    if not stripe.api_key or not STRIPE_PRICE_ID:
+        flash("Stripe is not configured. Add STRIPE_SECRET_KEY and STRIPE_PRICE_ID to .env", "error")
+        return redirect(url_for("pricing"))
+    try:
+        # create or retrieve Stripe customer
+        if not current_user.stripe_customer_id:
+            customer = stripe.Customer.create(
+                email=current_user.email,
+                name=current_user.name)
+            current_user.stripe_customer_id = customer.id
+            db.session.commit()
+
+        session_obj = stripe.checkout.Session.create(
+            customer=current_user.stripe_customer_id,
+            payment_method_types=["card"],
+            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            mode="subscription",
+            success_url=APP_URL + "/billing/success",
+            cancel_url=APP_URL + "/pricing",
+        )
+        return redirect(session_obj.url)
+    except Exception as e:
+        flash(f"Stripe error: {e}", "error")
+        return redirect(url_for("pricing"))
+
+
+@app.route("/billing/success")
+@login_required
+def billing_success():
+    flash("Subscription activated! Enjoy unlimited downloads.", "success")
+    return redirect(url_for("dashboard"))
+
+
+@app.route("/billing/portal", methods=["POST"])
+@login_required
+def billing_portal():
+    if not current_user.stripe_customer_id:
+        flash("No active subscription found.", "error")
+        return redirect(url_for("dashboard"))
+    try:
+        portal = stripe.billing_portal.Session.create(
+            customer=current_user.stripe_customer_id,
+            return_url=APP_URL + "/dashboard")
+        return redirect(portal.url)
+    except Exception as e:
+        flash(f"Error: {e}", "error")
+        return redirect(url_for("dashboard"))
+
+
+@app.route("/billing/webhook", methods=["POST"])
+def billing_webhook():
+    payload = request.get_data()
+    sig     = request.headers.get("Stripe-Signature", "")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+    except Exception:
+        return "Bad signature", 400
+
+    if event["type"] == "checkout.session.completed":
+        obj  = event["data"]["object"]
+        cust = obj.get("customer")
+        sub  = obj.get("subscription")
+        u    = User.query.filter_by(stripe_customer_id=cust).first()
+        if u:
+            u.plan = "pro"
+            u.stripe_subscription_id = sub
+            db.session.commit()
+
+    elif event["type"] in ("customer.subscription.deleted",
+                           "customer.subscription.updated"):
+        sub  = event["data"]["object"]
+        cust = sub.get("customer")
+        u    = User.query.filter_by(stripe_customer_id=cust).first()
+        if u:
+            status = sub.get("status", "")
+            u.plan = "pro" if status in ("active", "trialing") else "free"
+            db.session.commit()
+
+    return "ok", 200
+
+
+# ── account settings ──────────────────────────────────────────────────────────
+@app.route("/account")
+@login_required
+def account():
+    return render_template("account.html")
+
+
+@app.route("/account/update", methods=["POST"])
+@login_required
+def account_update():
+    name = request.form.get("name", "").strip()
+    if name:
+        current_user.name = name
+        db.session.commit()
+        flash("Name updated.", "success")
+    pw     = request.form.get("new_password", "")
+    cur_pw = request.form.get("current_password", "")
+    if pw:
+        if not current_user.check_password(cur_pw):
+            flash("Current password is incorrect.", "error")
+        elif len(pw) < 6:
+            flash("Password must be at least 6 characters.", "error")
+        else:
+            current_user.set_password(pw)
+            db.session.commit()
+            flash("Password updated.", "success")
+    return redirect(url_for("account"))
+
+
+# ── init db ───────────────────────────────────────────────────────────────────
+with app.app_context():
+    db.create_all()
+
+if __name__ == "__main__":
+    app.run(debug=False, port=8080, threaded=True)

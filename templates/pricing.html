@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Pricing — DriveLoad{% endblock %}
+{% block body %}
+<div class="container" style="padding-top:60px;padding-bottom:80px;">
+  <div style="text-align:center;margin-bottom:48px;">
+    <h1 style="font-size:2.4rem;font-weight:800;letter-spacing:-.04em;margin-bottom:10px;">
+      Simple, transparent pricing
+    </h1>
+    <p class="text-sub">Start free. Upgrade when you need more.</p>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));
+              gap:24px;max-width:700px;margin:0 auto;">
+
+    <!-- Free -->
+    <div class="card">
+      <p style="font-size:.8rem;font-weight:700;text-transform:uppercase;
+                letter-spacing:.1em;color:var(--sub);margin-bottom:8px;">Free</p>
+      <p style="font-size:2.8rem;font-weight:800;letter-spacing:-.04em;margin-bottom:4px;">
+        $0 <span class="text-sub" style="font-size:1rem;font-weight:500;">/ month</span>
+      </p>
+      <p class="text-sub text-sm mb-4">Perfect for occasional use.</p>
+      <ul style="list-style:none;margin-bottom:28px;">
+        {% for feat in [
+          ('✓','3 downloads per month'),
+          ('✓','Multi-threaded speed'),
+          ('✓','Download queue'),
+          ('✓','Download history'),
+          ('✗','Unlimited downloads'),
+          ('✗','Priority support'),
+        ] %}
+        <li style="padding:7px 0;border-bottom:1px solid var(--border);
+                   font-size:.875rem;display:flex;gap:8px;align-items:center;
+                   color:{% if feat[0]=='✓' %}var(--text){% else %}var(--muted){% endif %};">
+          <span style="color:{% if feat[0]=='✓' %}var(--green){% else %}var(--muted){% endif %};">{{ feat[0] }}</span>
+          {{ feat[1] }}
+        </li>
+        {% endfor %}
+      </ul>
+      <a href="/register" class="btn btn-outline w-full" style="justify-content:center;padding:11px;">
+        Get started free
+      </a>
+    </div>
+
+    <!-- Pro -->
+    <div class="card" style="border-color:var(--primary);
+         box-shadow:0 0 0 1px var(--primary),0 8px 32px #6366f122;position:relative;">
+      <span style="position:absolute;top:-14px;left:50%;transform:translateX(-50%);
+                   background:var(--primary);color:#fff;font-size:.75rem;font-weight:700;
+                   padding:3px 16px;border-radius:99px;">Most Popular</span>
+      <p style="font-size:.8rem;font-weight:700;text-transform:uppercase;
+                letter-spacing:.1em;color:var(--primary);margin-bottom:8px;">Pro</p>
+      <p style="font-size:2.8rem;font-weight:800;letter-spacing:-.04em;margin-bottom:4px;">
+        $9.99 <span class="text-sub" style="font-size:1rem;font-weight:500;">/ month</span>
+      </p>
+      <p class="text-sub text-sm mb-4">For power users and researchers.</p>
+      <ul style="list-style:none;margin-bottom:28px;">
+        {% for feat in [
+          ('✓','Unlimited downloads'),
+          ('✓','Multi-threaded speed'),
+          ('✓','Download queue'),
+          ('✓','Download history'),
+          ('✓','Priority support'),
+          ('✓','Cancel anytime'),
+        ] %}
+        <li style="padding:7px 0;border-bottom:1px solid var(--border);
+                   font-size:.875rem;display:flex;gap:8px;align-items:center;color:var(--text);">
+          <span style="color:var(--green);">{{ feat[0] }}</span> {{ feat[1] }}
+        </li>
+        {% endfor %}
+      </ul>
+      {% if current_user.is_authenticated %}
+        {% if current_user.plan == 'pro' %}
+          <div class="btn btn-muted w-full" style="justify-content:center;padding:11px;cursor:default;">
+            ✓ Current plan
+          </div>
+          <form method="POST" action="/billing/portal" class="mt-2">
+            <button type="submit" class="btn btn-outline w-full btn-sm"
+                    style="justify-content:center;">Manage subscription</button>
+          </form>
+        {% else %}
+          <form method="POST" action="/billing/checkout">
+            <button type="submit" class="btn btn-primary w-full"
+                    style="justify-content:center;padding:11px;">Upgrade to Pro</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <a href="/register" class="btn btn-primary w-full" style="justify-content:center;padding:11px;">
+          Get started
+        </a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- FAQ -->
+  <div style="max-width:600px;margin:60px auto 0;">
+    <h2 style="font-size:1.5rem;font-weight:800;text-align:center;margin-bottom:28px;">FAQ</h2>
+    {% for q, a in [
+      ('What counts as a download?', 'Each video file you download counts as one download.'),
+      ('Can I cancel anytime?', 'Yes. Cancel from your account portal — no questions asked. Your Pro access continues until the end of the billing period.'),
+      ('How do I pay?', 'We accept all major credit and debit cards via Stripe. Your payment information is never stored on our servers.'),
+      ('What happens when I hit the free limit?', 'Downloads are paused until the 1st of next month, or you can upgrade to Pro for immediate unlimited access.'),
+    ] %}
+    <div style="padding:16px 0;border-bottom:1px solid var(--border);">
+      <p style="font-weight:600;margin-bottom:6px;">{{ q }}</p>
+      <p class="text-sub text-sm" style="line-height:1.6;">{{ a }}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

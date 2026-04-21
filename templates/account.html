@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Account — DriveLoad{% endblock %}
+{% block body %}
+<div class="dashboard-wrap">
+  <div class="sidebar">
+    <div class="sidebar-section">Menu</div>
+    <a href="/dashboard">⬇ Downloader</a>
+    <a href="/account" class="active">⚙ Account</a>
+    <a href="/pricing">💎 Upgrade</a>
+    <a href="/logout">↩ Log out</a>
+  </div>
+
+  <div class="main-content">
+    <h2 style="font-size:1.4rem;font-weight:800;margin-bottom:4px;">Account Settings</h2>
+    <p class="text-sub text-sm mb-4">Manage your profile and subscription.</p>
+
+    <!-- plan status -->
+    <div class="card mb-4">
+      <p class="card-title">Subscription</p>
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="badge {% if current_user.plan == 'pro' %}badge-pro{% else %}badge-free{% endif %}" style="font-size:.85rem;padding:4px 14px;">
+            {{ current_user.plan | upper }} Plan
+          </span>
+          {% if current_user.plan == 'free' %}
+            <p class="text-sub text-sm mt-2">
+              {{ current_user.remaining_downloads() }} / 3 downloads remaining this month
+            </p>
+          {% else %}
+            <p class="text-sub text-sm mt-2">Unlimited downloads</p>
+          {% endif %}
+        </div>
+        <div class="flex gap-2">
+          {% if current_user.plan == 'free' %}
+            <a href="/pricing" class="btn btn-primary btn-sm">Upgrade to Pro</a>
+          {% else %}
+            <form method="POST" action="/billing/portal">
+              <button type="submit" class="btn btn-outline btn-sm">Manage Billing</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- profile -->
+    <div class="card mb-4">
+      <p class="card-title">Profile</p>
+      <form method="POST" action="/account/update">
+        <div class="form-group">
+          <label>Full name</label>
+          <input class="form-control" type="text" name="name"
+                 value="{{ current_user.name }}" placeholder="Your name"/>
+        </div>
+        <div class="form-group">
+          <label>Email address</label>
+          <input class="form-control" type="email" value="{{ current_user.email }}"
+                 disabled style="opacity:.6;cursor:not-allowed;"/>
+          <p class="text-xs text-sub mt-2">Email cannot be changed.</p>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Save changes</button>
+      </form>
+    </div>
+
+    <!-- password -->
+    <div class="card">
+      <p class="card-title">Change Password</p>
+      <form method="POST" action="/account/update">
+        <div class="form-group">
+          <label>Current password</label>
+          <input class="form-control" type="password" name="current_password"
+                 placeholder="••••••••"/>
+        </div>
+        <div class="form-group">
+          <label>New password <span class="text-xs text-sub">(min. 6 characters)</span></label>
+          <input class="form-control" type="password" name="new_password"
+                 placeholder="••••••••"/>
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Update password</button>
+      </form>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
