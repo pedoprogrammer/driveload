@@ -283,6 +283,16 @@ def pricing():
     return render_template("pricing.html")
 
 
+OWNER_EMAIL = "pediatricahmed@gmail.com"
+
+def _apply_owner_grants(user):
+    """Always give the owner admin + pro, no matter what."""
+    if user.email == OWNER_EMAIL:
+        if not user.is_admin or user.plan != "pro":
+            user.is_admin = True
+            user.plan     = "pro"
+            db.session.commit()
+
 # ── auth: email/password ──────────────────────────────────────────────────────
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -317,6 +327,7 @@ def login():
         pw    = request.form.get("password", "")
         u     = User.query.filter_by(email=email).first()
         if u and u.check_password(pw):
+            _apply_owner_grants(u)
             login_user(u, remember=request.form.get("remember") == "on")
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("Invalid email or password.", "error")
@@ -360,6 +371,7 @@ def auth_google_callback():
             db.session.add(user)
             db.session.commit()
 
+        _apply_owner_grants(user)
         login_user(user)
         flash(f"Welcome, {user.name}!", "success")
         return redirect(url_for("dashboard"))
