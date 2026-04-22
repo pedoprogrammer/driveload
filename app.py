@@ -263,17 +263,54 @@ def get_direct_download(file_id, cookies):
 
     return dl_url, fname, ext
 
-def get_gdoc_export(file_id, gdoc_type, cookies):
-    """Export a Google Workspace file (Docs/Sheets/Slides) to Office format."""
-    fmt_map = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "pdf": "pdf"}
-    fmt = fmt_map.get(gdoc_type, "pdf")
-    type_map = {
-        "docx": "document", "xlsx": "spreadsheets",
-        "pptx": "presentation", "pdf": "document"
-    }
+def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
+    """
+    Stream-download a Google Workspace file as Office format.
+    Uses a cookie session to follow all Google auth redirects properly.
+    Returns size_mb.
+    """
+    fmt_map  = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "pdf": "pdf"}
+    type_map = {"docx": "document", "xlsx": "spreadsheets",
+                "pptx": "presentation", "pdf": "document"}
+    fmt      = fmt_map.get(gdoc_type, "pdf")
     doc_type = type_map.get(gdoc_type, "document")
-    url = f"https://docs.google.com/{doc_type}/d/{file_id}/export?format={fmt}"
-    return url, f"{file_id}.{fmt}", f".{fmt}"
+    export_url = (f"https://docs.google.com/{doc_type}/d/{file_id}"
+                  f"/export?format={fmt}")
+
+    session = http.Session()
+    session.headers.update({
+        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36")
+    })
+    for k, v in cookies.items():
+        session.cookies.set(k, v)
+
+    _set_status(uid, f"Exporting as .{fmt}…", 5)
+    r = session.get(export_url, stream=True, allow_redirects=True, timeout=120)
+
+    # Guard: if Google returned HTML (error / login page) raise clearly
+    ct = r.headers.get("Content-Type", "")
+    if "text/html" in ct:
+        body = r.text[:300]
+        raise RuntimeError(
+            "Google returned an error page. Make sure your cookies are fresh "
+            f"and you have access to this file. Detail: {body[:120]}"
+        )
+
+    total = int(r.headers.get("content-length", 0))
+    received = 0
+    with open(out_path, "wb") as f:
+        for chunk in r.iter_content(65536):
+            if chunk:
+                f.write(chunk)
+                received += len(chunk)
+                if total:
+                    pct = received / total * 100
+                    _set_status(uid, f"Downloading… {pct:.1f}%", pct)
+
+    cookies.update(session.cookies.get_dict())
+    return received / 1048576
 
 def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
     try:
@@ -346,15 +383,23 @@ def _worker(uid, queue):
                     break
                 cookies = dict(user.cookies)
 
-                dl_url = filename = None
-
-                # 1. Google Workspace files (Docs / Sheets / Slides)
                 gdoc_type = detect_gdoc_type(orig_url)
-                if gdoc_type:
-                    dl_url, filename, _ = get_gdoc_export(file_id, gdoc_type, cookies)
+                tmpdir = Path("/tmp/driveload") / str(uid)
+                tmpdir.mkdir(parents=True, exist_ok=True)
 
-                # 2. Try video streaming API
-                if not dl_url:
+                # 1. Google Workspace files — stream export directly
+                if gdoc_type:
+                    fmt_map  = {"docx":"docx","xlsx":"xlsx","pptx":"pptx","pdf":"pdf"}
+                    fmt      = fmt_map.get(gdoc_type, "pdf")
+                    filename = re.sub(r'[\\/*?:"<>|]', "_", file_id) + f".{fmt}"
+                    out      = str(tmpdir / filename)
+                    _set_status(uid, f"[{idx+1}/{total}] Exporting {filename}…", 0)
+                    size_mb  = download_gdoc_export(uid, file_id, gdoc_type, cookies, out)
+
+                else:
+                    dl_url = filename = None
+
+                    # 2. Try video streaming API
                     video_url, title = get_video_info(file_id, cookies)
                     if video_url:
                         dl_url   = video_url
@@ -362,24 +407,18 @@ def _worker(uid, queue):
                         if not filename.lower().endswith(".mp4"):
                             filename += ".mp4"
 
-                # 3. General direct download (PDF, Word, images, etc.)
-                if not dl_url:
-                    dl_url, filename, _ = get_direct_download(file_id, cookies)
+                    # 3. General direct download (PDF, images, etc.)
+                    if not dl_url:
+                        dl_url, filename, _ = get_direct_download(file_id, cookies)
 
-                if not dl_url:
-                    _set_status(uid, f"[{idx+1}/{total}] Could not get download URL — skipped")
-                    continue
+                    if not dl_url:
+                        _set_status(uid, f"[{idx+1}/{total}] Could not get download URL — skipped")
+                        continue
 
-                filename = filename or file_id
-                # Sanitise filename
-                filename = re.sub(r'[\\/*?:"<>|]', "_", filename)
-
-                tmpdir = Path("/tmp/driveload") / str(uid)
-                tmpdir.mkdir(parents=True, exist_ok=True)
-                out = str(tmpdir / filename)
-
-                _set_status(uid, f"[{idx+1}/{total}] {filename}", 0)
-                size_mb = download_file(uid, dl_url, cookies, out)
+                    filename = re.sub(r'[\\/*?:"<>|]', "_", filename or file_id)
+                    out      = str(tmpdir / filename)
+                    _set_status(uid, f"[{idx+1}/{total}] {filename}", 0)
+                    size_mb  = download_file(uid, dl_url, cookies, out)
 
                 dl = Download(user_id=uid, filename=filename,
                               video_id=file_id, size_mb=round(size_mb, 1))
