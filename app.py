@@ -20,6 +20,10 @@ load_dotenv()
 
 # ── app setup ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
+# Force https in url_for() when running behind Render's proxy
+app.wsgi_app = __import__('werkzeug.middleware.proxy_fix', fromlist=['ProxyFix']).ProxyFix(
+    app.wsgi_app, x_proto=1, x_host=1
+)
 app.config.update(
     SECRET_KEY              = os.getenv("SECRET_KEY", "change-me"),
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///gdrive.db"),
