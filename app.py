@@ -541,7 +541,10 @@ def api_v1_download():
             message=f"Free limit reached ({FREE_LIMIT} downloads). Upgrade to Pro."), 403
 
     # save cookies if provided by extension
+    # Normalize: extension sends [{name,value,...}], app needs {name: value}
     if cookies:
+        if isinstance(cookies, list):
+            cookies = {c["name"]: c["value"] for c in cookies if "name" in c and "value" in c}
         user.cookies = cookies
         db.session.commit()
 
@@ -554,16 +557,20 @@ def api_v1_download():
     threading.Thread(target=_worker, args=(user.id, [item]), daemon=True).start()
     return jsonify(ok=True, message="Download started")
 
-@app.route("/api/v1/status")
+@app.route("/api/v1/status", methods=["GET", "POST"])
 def api_v1_status():
     """Poll download status — used by Chrome extension."""
-    api_key = request.headers.get("X-API-Key") or request.args.get("api_key", "")
-    user    = User.query.filter_by(api_key=api_key).first()
+    api_key = (request.headers.get("X-API-Key") or
+               (request.json or {}).get("api_key", "") or
+               request.args.get("api_key", ""))
+    user = User.query.filter_by(api_key=api_key).first()
     if not user:
         return jsonify(ok=False, message="Invalid API key"), 401
     st = _get_state(user.id)
     return jsonify(ok=True, busy=st["busy"],
-                   status=st["status"], progress=st["progress"])
+                   status=st["status"], progress=st["progress"],
+                   plan=user.plan,
+                   downloads_used=user.total_downloads)
 
 
 # ── account ───────────────────────────────────────────────────────────────────

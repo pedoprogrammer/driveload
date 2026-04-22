@@ -48,7 +48,7 @@
       <p class="text-sub text-sm mb-3">Use this key to connect the DriveLoad Chrome extension to your account.</p>
       <div style="display:flex;align-items:center;gap:8px;">
         <input id="api-key-field" class="form-control" type="text"
-               value="{{ current_user.get_or_create_api_key() }}"
+               value="{{ api_key }}"
                readonly style="font-family:monospace;font-size:.85rem;flex:1;"/>
         <button onclick="copyKey()" class="btn btn-outline btn-sm" style="white-space:nowrap;">Copy</button>
       </div>
