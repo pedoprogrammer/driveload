@@ -750,12 +750,13 @@ with app.app_context():
         """))
         conn.execute(text("DROP TABLE user"))
         conn.execute(text("ALTER TABLE user_new RENAME TO user"))
-        # Grant admin + pro to the owner account
-        conn.execute(text("""
-            UPDATE user SET is_admin=1, plan='pro'
-            WHERE email='pediatricahmed@gmail.com'
-        """))
         conn.commit()
+    # Always ensure the owner account has admin + pro
+    owner = User.query.filter_by(email="pediatricahmed@gmail.com").first()
+    if owner:
+        owner.is_admin = True
+        owner.plan     = "pro"
+        db.session.commit()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
