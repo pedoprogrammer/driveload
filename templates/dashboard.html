@@ -226,10 +226,31 @@ function connectSSE(){
     if(d.done){
       queue=[]; renderQueue();
       document.getElementById('dl-btn').disabled=false;
-      setTimeout(()=>location.reload(), 1500); // refresh history
+      // Trigger browser file download
+      triggerFileDownload();
+      setTimeout(()=>location.reload(), 3000); // refresh history
     }
   };
   es.onerror = () => setTimeout(connectSSE, 3000);
+}
+
+// ── file download trigger ─────────────────────────────────────────────────────
+async function triggerFileDownload(){
+  // Ask server if a file is ready, then download it
+  const check = await fetch('/api/download/file').catch(()=>null);
+  if(!check || !check.ok) return;
+  const blob = await check.blob();
+  const name = check.headers.get('Content-Disposition')
+    ?.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)?.[1]?.replace(/['"]/g,'')
+    || 'video.mp4';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('File downloaded to your Downloads folder!', true);
+  // Download remaining files if queue had multiple
+  setTimeout(triggerFileDownload, 500);
 }
 
 // ── toast ─────────────────────────────────────────────────────────────────────

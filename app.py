@@ -9,7 +9,7 @@ import stripe
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
 from flask import (Flask, Response, flash, jsonify, redirect,
-                   render_template, request, stream_with_context, url_for)
+                   render_template, request, send_file, stream_with_context, url_for)
 from flask_cors import CORS
 from flask_login import (LoginManager, UserMixin, current_user,
                          login_required, login_user, logout_user)
@@ -247,7 +247,10 @@ def _worker(uid, queue):
                 filename = (title or vid).replace("+", " ")
                 if not filename.endswith(".mp4"):
                     filename += ".mp4"
-                out = str(DOWNLOAD_DIR / filename)
+                # Save to /tmp (accessible on Render, survives the request)
+                tmpdir = Path("/tmp/driveload") / str(uid)
+                tmpdir.mkdir(parents=True, exist_ok=True)
+                out = str(tmpdir / filename)
                 _set_status(uid, f"[{idx+1}/{total}] {filename}", 0)
                 size_mb = download_video(uid, video_url, cookies, out)
                 dl = Download(user_id=uid, filename=filename,
@@ -255,6 +258,11 @@ def _worker(uid, queue):
                 db.session.add(dl)
                 user.increment_downloads()
                 db.session.commit()
+                # Store path so the browser can fetch it
+                st = _get_state(uid)
+                st.setdefault("ready_files", []).append({
+                    "filename": filename, "path": out
+                })
                 _set_status(uid, f"[{idx+1}/{total}] Done: {filename}", 100)
         except Exception as e:
             _set_status(uid, f"[{idx+1}/{total}] Error: {e}")
@@ -472,6 +480,23 @@ def api_events():
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+@app.route("/api/download/file")
+@login_required
+def api_download_file():
+    """Stream a completed file to the user's browser then delete it."""
+    uid = current_user.id
+    st  = _get_state(uid)
+    files = st.get("ready_files", [])
+    if not files:
+        return jsonify(ok=False, message="No file ready"), 404
+    item = files.pop(0)
+    path = item["path"]
+    name = item["filename"]
+    if not os.path.exists(path):
+        return jsonify(ok=False, message="File not found"), 404
+    return send_file(path, as_attachment=True, download_name=name,
+                     mimetype="video/mp4")
 
 def _get_session_queue():
     from flask import session
