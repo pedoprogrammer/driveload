@@ -651,6 +651,31 @@ with app.app_context():
             conn.execute(text("ALTER TABLE user ADD COLUMN api_key VARCHAR(64)"))
         if "total_downloads" not in existing:
             conn.execute(text("ALTER TABLE user ADD COLUMN total_downloads INTEGER DEFAULT 0"))
+        # SQLite: recreate table to allow NULL on password_hash
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_new (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(120) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password_hash VARCHAR(255),
+                google_id VARCHAR(120) UNIQUE,
+                api_key VARCHAR(64) UNIQUE,
+                plan VARCHAR(20) DEFAULT 'free',
+                stripe_customer_id VARCHAR(120),
+                stripe_subscription_id VARCHAR(120),
+                cookies_json TEXT DEFAULT '{}',
+                total_downloads INTEGER DEFAULT 0,
+                created_at DATETIME
+            )
+        """))
+        conn.execute(text("""
+            INSERT OR IGNORE INTO user_new
+            SELECT id, name, email, password_hash, google_id, api_key, plan,
+                   stripe_customer_id, stripe_subscription_id, cookies_json,
+                   total_downloads, created_at FROM user
+        """))
+        conn.execute(text("DROP TABLE user"))
+        conn.execute(text("ALTER TABLE user_new RENAME TO user"))
         conn.commit()
 
 if __name__ == "__main__":
