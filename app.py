@@ -640,6 +640,18 @@ def billing_webhook():
 # ── init ──────────────────────────────────────────────────────────────────────
 with app.app_context():
     db.create_all()
+    # Auto-migrate: add new columns if they don't exist yet
+    from sqlalchemy import text, inspect as sa_inspect
+    inspector = sa_inspect(db.engine)
+    existing = [c["name"] for c in inspector.get_columns("user")]
+    with db.engine.connect() as conn:
+        if "google_id" not in existing:
+            conn.execute(text("ALTER TABLE user ADD COLUMN google_id VARCHAR(120)"))
+        if "api_key" not in existing:
+            conn.execute(text("ALTER TABLE user ADD COLUMN api_key VARCHAR(64)"))
+        if "total_downloads" not in existing:
+            conn.execute(text("ALTER TABLE user ADD COLUMN total_downloads INTEGER DEFAULT 0"))
+        conn.commit()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
