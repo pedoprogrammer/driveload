@@ -158,8 +158,25 @@ def _set_status(uid, status, progress=None):
 
 
 # ── download helpers ──────────────────────────────────────────────────────────
-def extract_video_id(text):
-    m = re.search(r'/file/d/([a-zA-Z0-9_-]+)', text)
+MIME_EXT = {
+    "application/pdf":                                                          ".pdf",
+    "application/msword":                                                       ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document":  ".docx",
+    "application/vnd.ms-excel":                                                 ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":        ".xlsx",
+    "application/vnd.ms-powerpoint":                                            ".ppt",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation":".pptx",
+    "application/zip":                                                          ".zip",
+    "application/x-zip-compressed":                                            ".zip",
+    "image/jpeg":  ".jpg", "image/png": ".png", "image/gif": ".gif",
+    "image/webp":  ".webp", "image/svg+xml": ".svg",
+    "text/plain":  ".txt", "text/csv": ".csv",
+    "audio/mpeg":  ".mp3", "audio/ogg": ".ogg", "audio/wav": ".wav",
+    "video/mp4":   ".mp4", "video/webm": ".webm", "video/quicktime": ".mov",
+}
+
+def extract_file_id(text):
+    m = re.search(r'/(?:file|document|spreadsheets|presentation)/d/([a-zA-Z0-9_-]+)', text)
     if m:
         return m.group(1)
     qs = parse_qs(urlparse(text).query)
@@ -167,9 +184,21 @@ def extract_video_id(text):
         return qs['id'][0]
     return text.strip()
 
-def get_video_info(video_id, cookies):
+# Keep old name as alias for compatibility
+extract_video_id = extract_file_id
+
+def detect_gdoc_type(url):
+    """Return (export_url, ext) for Google Workspace files, else (None, None)."""
+    if "/document/d/"     in url: return "docx"
+    if "/spreadsheets/d/" in url: return "xlsx"
+    if "/presentation/d/" in url: return "pptx"
+    if "/forms/d/"        in url: return "pdf"
+    return None
+
+def get_video_info(file_id, cookies):
+    """Try Drive's video streaming API — returns (stream_url, title) or (None, None)."""
     url = (f"https://drive.google.com/u/0/get_video_info"
-           f"?docid={video_id}&drive_originator_app=303")
+           f"?docid={file_id}&drive_originator_app=303")
     r = http.get(url, cookies=cookies, timeout=30)
     cookies.update(r.cookies.get_dict())
     video_url = title = None
@@ -181,6 +210,70 @@ def get_video_info(video_id, cookies):
         if video_url and title:
             break
     return video_url, title
+
+def get_direct_download(file_id, cookies):
+    """
+    Get download URL and filename for any Drive file.
+    Handles Google's large-file virus-scan confirmation page.
+    Returns (download_url, filename, ext).
+    """
+    base = f"https://drive.google.com/uc?export=download&id={file_id}"
+    session = http.Session()
+    for k, v in cookies.items():
+        session.cookies.set(k, v)
+
+    r = session.get(base, stream=True, timeout=30, allow_redirects=True)
+    cookies.update(session.cookies.get_dict())
+
+    # Google shows an HTML confirmation page for large files
+    ct = r.headers.get("Content-Type", "")
+    if "text/html" in ct:
+        # Extract confirmation token
+        confirm = re.search(r'confirm=([^&"\'>\s]+)', r.text)
+        uuid    = re.search(r'uuid=([^&"\'>\s]+)',    r.text)
+        if not confirm:
+            return None, None, None
+        dl_url = f"{base}&confirm={confirm.group(1)}"
+        if uuid:
+            dl_url += f"&uuid={uuid.group(1)}"
+        # Re-fetch headers only
+        r = session.head(dl_url, allow_redirects=True, timeout=30)
+        cookies.update(session.cookies.get_dict())
+        ct = r.headers.get("Content-Type", "")
+    else:
+        dl_url = base
+
+    # Derive extension from MIME type
+    mime = ct.split(";")[0].strip()
+    ext  = MIME_EXT.get(mime, "")
+
+    # Derive filename from Content-Disposition
+    cd    = r.headers.get("Content-Disposition", "")
+    fname = None
+    if cd:
+        m = re.search(r"filename\*?=(?:UTF-8'')?[\"']?([^\"';\r\n]+)", cd, re.I)
+        if m:
+            fname = unquote(m.group(1).strip().strip('"\''))
+    if not fname:
+        fname = file_id
+
+    # Ensure correct extension
+    if ext and not fname.lower().endswith(ext):
+        fname += ext
+
+    return dl_url, fname, ext
+
+def get_gdoc_export(file_id, gdoc_type, cookies):
+    """Export a Google Workspace file (Docs/Sheets/Slides) to Office format."""
+    fmt_map = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "pdf": "pdf"}
+    fmt = fmt_map.get(gdoc_type, "pdf")
+    type_map = {
+        "docx": "document", "xlsx": "spreadsheets",
+        "pptx": "presentation", "pdf": "document"
+    }
+    doc_type = type_map.get(gdoc_type, "document")
+    url = f"https://docs.google.com/{doc_type}/d/{file_id}/export?format={fmt}"
+    return url, f"{file_id}.{fmt}", f".{fmt}"
 
 def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
     try:
@@ -197,30 +290,40 @@ def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
         pass
     return pnum, None
 
-def download_video(uid, video_url, cookies, out_path, threads=8, chunk_mb=6):
-    head = http.head(video_url, cookies=cookies, allow_redirects=True)
+def download_file(uid, dl_url, cookies, out_path, threads=8, chunk_mb=6):
+    """Multi-threaded chunked downloader. Falls back to streaming for small files."""
+    head = http.head(dl_url, cookies=cookies, allow_redirects=True, timeout=30)
     size = int(head.headers.get("content-length", 0))
+
     if not size:
-        raise RuntimeError("Could not determine file size.")
+        # Streaming fallback (no content-length header)
+        _set_status(uid, "Downloading…", 5)
+        with http.get(dl_url, cookies=cookies, stream=True, timeout=120) as r:
+            with open(out_path, "wb") as f:
+                for chunk in r.iter_content(65536):
+                    if chunk:
+                        f.write(chunk)
+        return os.path.getsize(out_path) / 1048576
+
     _set_status(uid, f"Size: {size/1048576:.1f} MB — downloading…", 0)
     chunk  = chunk_mb * 1048576
     ranges = [(i, min(i + chunk - 1, size - 1), idx)
               for idx, i in enumerate(range(0, size, chunk))]
     tmpdir = out_path + ".parts"
     os.makedirs(tmpdir, exist_ok=True)
-    done, total = {}, 0
+    done, received = {}, 0
     with ThreadPoolExecutor(max_workers=threads) as ex:
-        futs = {ex.submit(_dl_chunk, video_url, cookies, s, e, pn, tmpdir): pn
+        futs = {ex.submit(_dl_chunk, dl_url, cookies, s, e, pn, tmpdir): pn
                 for s, e, pn in ranges}
         for f in as_completed(futs):
             pn, path = f.result()
             if path:
                 done[pn] = path
-                total += os.path.getsize(path)
-                pct = total / size * 100
+                received += os.path.getsize(path)
+                pct = received / size * 100
                 _set_status(uid, f"Downloading… {pct:.1f}%  "
-                    f"({total/1048576:.1f} / {size/1048576:.1f} MB)", pct)
-    _set_status(uid, "Merging chunks…", 99)
+                    f"({received/1048576:.1f} / {size/1048576:.1f} MB)", pct)
+    _set_status(uid, "Merging…", 99)
     with open(out_path, "wb") as out:
         for pn in sorted(done):
             with open(done[pn], "rb") as f:
@@ -232,7 +335,8 @@ def download_video(uid, video_url, cookies, out_path, threads=8, chunk_mb=6):
 def _worker(uid, queue):
     total = len(queue)
     for idx, item in enumerate(queue):
-        vid = item["id"]
+        file_id  = item["id"]
+        orig_url = item.get("url", "")
         _set_status(uid, f"[{idx+1}/{total}] Fetching info…", 0)
         try:
             with app.app_context():
@@ -240,30 +344,51 @@ def _worker(uid, queue):
                 if not user or not user.can_download():
                     _set_status(uid, "Download limit reached. Upgrade to Pro.")
                     break
-                cookies   = dict(user.cookies)
-                video_url, title = get_video_info(vid, cookies)
-                if not video_url:
-                    _set_status(uid, f"[{idx+1}/{total}] Could not get URL — skipped")
+                cookies = dict(user.cookies)
+
+                dl_url = filename = None
+
+                # 1. Google Workspace files (Docs / Sheets / Slides)
+                gdoc_type = detect_gdoc_type(orig_url)
+                if gdoc_type:
+                    dl_url, filename, _ = get_gdoc_export(file_id, gdoc_type, cookies)
+
+                # 2. Try video streaming API
+                if not dl_url:
+                    video_url, title = get_video_info(file_id, cookies)
+                    if video_url:
+                        dl_url   = video_url
+                        filename = (title or file_id).replace("+", " ")
+                        if not filename.lower().endswith(".mp4"):
+                            filename += ".mp4"
+
+                # 3. General direct download (PDF, Word, images, etc.)
+                if not dl_url:
+                    dl_url, filename, _ = get_direct_download(file_id, cookies)
+
+                if not dl_url:
+                    _set_status(uid, f"[{idx+1}/{total}] Could not get download URL — skipped")
                     continue
-                filename = (title or vid).replace("+", " ")
-                if not filename.endswith(".mp4"):
-                    filename += ".mp4"
-                # Save to /tmp (accessible on Render, survives the request)
+
+                filename = filename or file_id
+                # Sanitise filename
+                filename = re.sub(r'[\\/*?:"<>|]', "_", filename)
+
                 tmpdir = Path("/tmp/driveload") / str(uid)
                 tmpdir.mkdir(parents=True, exist_ok=True)
                 out = str(tmpdir / filename)
+
                 _set_status(uid, f"[{idx+1}/{total}] {filename}", 0)
-                size_mb = download_video(uid, video_url, cookies, out)
+                size_mb = download_file(uid, dl_url, cookies, out)
+
                 dl = Download(user_id=uid, filename=filename,
-                              video_id=vid, size_mb=round(size_mb, 1))
+                              video_id=file_id, size_mb=round(size_mb, 1))
                 db.session.add(dl)
                 user.increment_downloads()
                 db.session.commit()
-                # Store path so the browser can fetch it
+
                 st = _get_state(uid)
-                st.setdefault("ready_files", []).append({
-                    "filename": filename, "path": out
-                })
+                st.setdefault("ready_files", []).append({"filename": filename, "path": out})
                 _set_status(uid, f"[{idx+1}/{total}] Done: {filename}", 100)
         except Exception as e:
             _set_status(uid, f"[{idx+1}/{total}] Error: {e}")

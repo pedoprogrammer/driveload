@@ -121,13 +121,20 @@ async function detectDriveUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) { show(urlMissing); return; }
 
-  const match = tab.url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  // Match any Google Drive/Docs/Sheets/Slides file
+  const match = tab.url.match(
+    /(?:drive\.google\.com\/file\/d\/|docs\.google\.com\/(?:document|spreadsheets|presentation|forms)\/d\/)([a-zA-Z0-9_-]+)/
+  );
   if (match) {
     currentUrl = tab.url;
     urlDisplay.textContent = tab.url;
     show(urlFound);
     downloadBtn.disabled = false;
-    dlLabel.textContent  = "⬇ Download Video";
+    // Label based on file type
+    if      (tab.url.includes("/document/"))     dlLabel.textContent = "⬇ Download as Word";
+    else if (tab.url.includes("/spreadsheets/")) dlLabel.textContent = "⬇ Download as Excel";
+    else if (tab.url.includes("/presentation/")) dlLabel.textContent = "⬇ Download as PowerPoint";
+    else                                          dlLabel.textContent = "⬇ Download File";
   } else {
     show(urlMissing);
     downloadBtn.disabled = true;
