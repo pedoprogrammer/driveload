@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>DriveLoad</title>
+  <link rel="stylesheet" href="styles.css"/>
+</head>
+<body>
+  <div class="header">
+    <span class="logo">DriveLoad</span>
+    <span id="plan-badge" class="badge"></span>
+  </div>
+
+  <!-- Not configured state -->
+  <div id="setup-view" class="view hidden">
+    <p class="hint">Paste your API key from your <strong>DriveLoad account</strong> to connect.</p>
+    <input id="api-key-input" type="text" placeholder="Paste API key here..." class="input"/>
+    <button id="save-key-btn" class="btn btn-primary">Connect Account</button>
+    <a href="https://driveload.onrender.com/account" target="_blank" class="link">Get API key →</a>
+  </div>
+
+  <!-- Main state -->
+  <div id="main-view" class="view hidden">
+    <div id="url-detect" class="url-box hidden">
+      <p class="url-label">Detected Drive video:</p>
+      <p id="detected-url" class="url-text"></p>
+    </div>
+    <div id="no-url" class="hint hidden">
+      Navigate to a Google Drive video page, then click Download.
+    </div>
+
+    <div id="cookies-status" class="status-row"></div>
+
+    <button id="download-btn" class="btn btn-primary" disabled>Download Video</button>
+
+    <div id="progress-wrap" class="hidden">
+      <div class="progress-bar-bg">
+        <div id="progress-bar" class="progress-bar-fill" style="width:0%"></div>
+      </div>
+      <p id="progress-text" class="progress-text">Starting...</p>
+    </div>
+
+    <div id="done-msg" class="done hidden">Download queued! Check your DriveLoad dashboard.</div>
+
+    <div class="footer-row">
+      <span id="downloads-left" class="hint-sm"></span>
+      <button id="disconnect-btn" class="link-btn">Disconnect</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
