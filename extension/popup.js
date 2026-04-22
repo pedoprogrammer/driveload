@@ -26,13 +26,12 @@ const disconnectBtn= document.getElementById("disconnect-btn");
 
 let currentUrl  = null;
 let cookiesData = null;
+let currentTab  = null;
+let downloadMode = "api"; // "api" | "pdf"
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 chrome.storage.local.get(["apiKey", "userData"], async (data) => {
-  if (!data.apiKey) {
-    show(setupView);
-    return;
-  }
+  if (!data.apiKey) { show(setupView); return; }
   show(mainView);
   if (data.userData) renderUser(data.userData);
   await detectDriveUrl();
@@ -43,50 +42,36 @@ chrome.storage.local.get(["apiKey", "userData"], async (data) => {
 saveKeyBtn.addEventListener("click", async () => {
   const key = apiKeyInput.value.trim();
   if (!key) { shakeInput(); return; }
-
   setLoading(true);
   hide(keyError);
   apiKeyInput.classList.remove("error");
-
   try {
     const res = await fetch(`${API_BASE}/api/v1/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
       body: JSON.stringify({})
     });
-
     if (res.status === 401) throw new Error("invalid");
     const data = await res.json();
     if (!data.ok) throw new Error("invalid");
-
-    const userData = {
-      plan:           data.plan || "free",
-      downloadsUsed:  data.downloads_used || 0
-    };
-
+    const userData = { plan: data.plan || "free", downloadsUsed: data.downloads_used || 0 };
     await chrome.storage.local.set({ apiKey: key, userData });
     location.reload();
-
   } catch (e) {
     setLoading(false);
     apiKeyInput.classList.add("error");
     show(keyError);
-    if (e.message !== "invalid") {
-      keyError.textContent = "Could not connect to DriveLoad. Check your internet connection.";
-    } else {
-      keyError.textContent = "Invalid API key. Please check and try again.";
-    }
+    keyError.textContent = e.message === "invalid"
+      ? "Invalid API key. Please check and try again."
+      : "Could not connect to DriveLoad. Check your internet.";
   }
 });
 
 function setLoading(on) {
-  saveKeyBtn.disabled  = on;
+  saveKeyBtn.disabled = on;
   saveKeyLabel.textContent = on ? "Connecting…" : "Connect Account";
 }
-
 function shakeInput() {
-  apiKeyInput.style.animation = "none";
-  setTimeout(() => { apiKeyInput.style.animation = ""; }, 10);
   apiKeyInput.classList.add("error");
   setTimeout(() => apiKeyInput.classList.remove("error"), 1500);
 }
@@ -100,41 +85,50 @@ disconnectBtn.addEventListener("click", () => {
 function renderUser(ud) {
   const plan = ud.plan || "free";
   const used = ud.downloadsUsed || 0;
-
-  planPill.textContent  = plan.toUpperCase();
-  planPill.className    = "plan-pill " + (plan === "pro" ? "plan-pro" : "plan-free");
+  planPill.textContent = plan.toUpperCase();
+  planPill.className   = "plan-pill " + (plan === "pro" ? "plan-pro" : "plan-free");
   show(planPill);
-
   userAvatar.textContent = plan === "pro" ? "★" : "U";
   userName.textContent   = plan === "pro" ? "Pro Member" : "Free Plan";
-
-  if (plan === "pro") {
-    quotaText.textContent = "Unlimited downloads";
-  } else {
-    const left = Math.max(0, 3 - used);
-    quotaText.textContent = `${left} of 3 free downloads remaining`;
-  }
+  quotaText.textContent  = plan === "pro"
+    ? "Unlimited downloads"
+    : `${Math.max(0, 3 - used)} of 3 free downloads remaining`;
 }
 
 // ── Detect active tab URL ─────────────────────────────────────────────────────
 async function detectDriveUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) { show(urlMissing); return; }
+  currentTab = tab;
 
-  // Match any Google Drive/Docs/Sheets/Slides file
-  const match = tab.url.match(
-    /(?:drive\.google\.com\/file\/d\/|docs\.google\.com\/(?:document|spreadsheets|presentation|forms)\/d\/)([a-zA-Z0-9_-]+)/
-  );
-  if (match) {
+  // Match Drive files and Google Workspace files
+  const driveFile  = tab.url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  const docsFile   = tab.url.match(/docs\.google\.com\/(document|spreadsheets|presentation|forms)\/d\/([a-zA-Z0-9_-]+)/);
+
+  if (driveFile || docsFile) {
     currentUrl = tab.url;
     urlDisplay.textContent = tab.url;
     show(urlFound);
+
+    // Decide download mode
+    if (docsFile) {
+      const dtype = docsFile[1];
+      if (dtype === "document")     { dlLabel.textContent = "⬇ Download as Word (.docx)"; downloadMode = "api"; }
+      else if (dtype === "spreadsheets") { dlLabel.textContent = "⬇ Download as Excel (.xlsx)"; downloadMode = "api"; }
+      else if (dtype === "presentation") { dlLabel.textContent = "⬇ Download as PowerPoint (.pptx)"; downloadMode = "api"; }
+      else                          { dlLabel.textContent = "⬇ Download File"; downloadMode = "api"; }
+    } else {
+      // Drive file — detect if it's likely a PDF by checking the page title
+      const isPDF = tab.title && (tab.title.toLowerCase().includes(".pdf") || tab.url.includes("pdf"));
+      if (isPDF) {
+        dlLabel.textContent = "⬇ Download PDF (from viewer)";
+        downloadMode = "pdf";
+      } else {
+        dlLabel.textContent = "⬇ Download File";
+        downloadMode = "api";
+      }
+    }
     downloadBtn.disabled = false;
-    // Label based on file type
-    if      (tab.url.includes("/document/"))     dlLabel.textContent = "⬇ Download as Word";
-    else if (tab.url.includes("/spreadsheets/")) dlLabel.textContent = "⬇ Download as Excel";
-    else if (tab.url.includes("/presentation/")) dlLabel.textContent = "⬇ Download as PowerPoint";
-    else                                          dlLabel.textContent = "⬇ Download File";
   } else {
     show(urlMissing);
     downloadBtn.disabled = true;
@@ -143,78 +137,152 @@ async function detectDriveUrl() {
 
 // ── Fetch Google cookies ──────────────────────────────────────────────────────
 async function fetchCookies() {
+  if (downloadMode === "pdf") {
+    // PDF mode doesn't need manually fetched cookies — browser session handles it
+    cookieText.textContent = "PDF mode: uses your active Google session";
+    cookieText.className   = "info-text info-ok";
+    return;
+  }
   cookieText.textContent = "Reading Google cookies…";
   try {
     const raw = await chrome.cookies.getAll({ domain: ".google.com" });
     if (!raw || raw.length === 0) {
       cookieText.textContent = "No Google cookies — make sure you're logged into Google.";
-      cookieText.className = "info-text info-warn";
+      cookieText.className   = "info-text info-warn";
       return;
     }
     cookiesData = raw.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path }));
     cookieText.textContent = `${raw.length} Google cookies ready`;
-    cookieText.className = "info-text info-ok";
+    cookieText.className   = "info-text info-ok";
   } catch (e) {
     cookieText.textContent = "Could not read cookies: " + e.message;
-    cookieText.className = "info-text info-warn";
+    cookieText.className   = "info-text info-warn";
   }
 }
 
 // ── Download ──────────────────────────────────────────────────────────────────
 downloadBtn.addEventListener("click", async () => {
   if (!currentUrl) return;
-  const { apiKey } = await chrome.storage.local.get("apiKey");
 
+  if (downloadMode === "pdf") {
+    await startPDFDownload();
+  } else {
+    await startAPIDownload();
+  }
+});
+
+// PDF download — inject jsPDF + downloader into page
+async function startPDFDownload() {
+  downloadBtn.disabled = true;
+  show(progressSec);
+  progressFill.style.width = "5%";
+  progressFill.style.background = "";
+  progressLbl.textContent  = "Injecting PDF downloader…";
+
+  try {
+    // Inject jsPDF into the page's main world
+    await chrome.scripting.executeScript({
+      target: { tabId: currentTab.id },
+      files:  ["vendor/jspdf.min.js"],
+      world:  "MAIN"
+    });
+
+    // Inject and run the PDF downloader
+    await chrome.scripting.executeScript({
+      target: { tabId: currentTab.id },
+      files:  ["pdf_downloader.js"],
+      world:  "MAIN"
+    });
+
+    // Poll __driveload_status from the page
+    progressLbl.textContent = "Scrolling through pages…";
+    await pollPDFStatus();
+
+  } catch (e) {
+    progressFill.style.background = "#ef4444";
+    progressLbl.textContent = "Error: " + e.message;
+    downloadBtn.disabled = false;
+  }
+}
+
+async function pollPDFStatus() {
+  const poll = setInterval(async () => {
+    try {
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: currentTab.id },
+        func:   () => window.__driveload_status,
+        world:  "MAIN"
+      });
+      const st = result?.result;
+      if (!st) return;
+
+      progressFill.style.width = (st.progress || 0) + "%";
+      progressLbl.textContent  = st.message || "Processing…";
+
+      if (st.error) {
+        clearInterval(poll);
+        progressFill.style.background = "#ef4444";
+        progressLbl.textContent = st.error;
+        downloadBtn.disabled = false;
+      } else if (st.done) {
+        clearInterval(poll);
+        hide(progressSec);
+        show(successMsg);
+        document.querySelector(".success-title").textContent = "PDF downloaded!";
+        document.querySelector(".success-sub").textContent   = "Check your Downloads folder.";
+      }
+    } catch (_) {}
+  }, 600);
+}
+
+// API download — sends to DriveLoad server
+async function startAPIDownload() {
+  const { apiKey } = await chrome.storage.local.get("apiKey");
   downloadBtn.disabled = true;
   dlLabel.textContent  = "Sending…";
   show(progressSec);
   progressFill.style.width = "15%";
+  progressFill.style.background = "";
   progressLbl.textContent  = "Connecting to DriveLoad…";
 
   try {
     const res = await fetch(`${API_BASE}/api/v1/download`, {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-      body: JSON.stringify({ url: currentUrl, cookies: cookiesData })
+      body:    JSON.stringify({ url: currentUrl, cookies: cookiesData })
     });
-
     const data = await res.json();
 
     if (!data.ok) {
-      progressFill.style.width = "100%";
       progressFill.style.background = "#ef4444";
       progressLbl.textContent = data.message || "Something went wrong.";
-      dlLabel.textContent = "⬇ Download Video";
+      dlLabel.textContent = "⬇ Download File";
       downloadBtn.disabled = false;
       return;
     }
 
     progressFill.style.width = "100%";
-    setTimeout(() => {
-      hide(progressSec);
-      show(successMsg);
-    }, 600);
+    setTimeout(() => { hide(progressSec); show(successMsg); }, 600);
 
-    // Refresh cached user data
-    const statusRes = await fetch(`${API_BASE}/api/v1/status`, {
-      method: "POST",
+    // Refresh user data
+    const sr = await fetch(`${API_BASE}/api/v1/status`, {
+      method:  "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-      body: JSON.stringify({})
+      body:    JSON.stringify({})
     });
-    if (statusRes.ok) {
-      const sd = await statusRes.json();
+    if (sr.ok) {
+      const sd = await sr.json();
       const userData = { plan: sd.plan || "free", downloadsUsed: sd.downloads_used || 0 };
       await chrome.storage.local.set({ userData });
       renderUser(userData);
     }
-
   } catch (e) {
     progressFill.style.background = "#ef4444";
     progressLbl.textContent = "Network error — is DriveLoad reachable?";
-    dlLabel.textContent = "⬇ Download Video";
+    dlLabel.textContent = "⬇ Download File";
     downloadBtn.disabled = false;
   }
-});
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function show(el) { el.classList.remove("hidden"); }

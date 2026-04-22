@@ -1,13 +1,19 @@
 {
   "manifest_version": 3,
   "name": "DriveLoad",
-  "version": "1.0.0",
-  "description": "Download Google Drive view-only videos directly from your browser.",
-  "permissions": ["cookies", "activeTab", "storage", "tabs"],
+  "version": "1.1.0",
+  "description": "Download Google Drive view-only files — videos, PDFs, Word docs, images, and more.",
+  "permissions": ["cookies", "activeTab", "storage", "tabs", "scripting"],
   "host_permissions": [
     "https://drive.google.com/*",
     "https://*.google.com/*",
     "https://driveload.onrender.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["vendor/jspdf.min.js", "pdf_downloader.js"],
+      "matches": ["https://drive.google.com/*", "https://docs.google.com/*"]
+    }
   ],
   "action": {
     "default_popup": "popup.html",
