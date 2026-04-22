@@ -21,19 +21,13 @@
     <div class="setup-icon">🔑</div>
     <h2 class="setup-title">Connect Your Account</h2>
     <p class="setup-desc">Paste your API key from DriveLoad to get started.</p>
-
-    <div class="input-group">
-      <input id="api-key-input" type="text" class="input" placeholder="Paste API key here…" autocomplete="off" spellcheck="false"/>
-    </div>
-
+    <input id="api-key-input" type="text" class="input" placeholder="Paste API key here…" autocomplete="off" spellcheck="false"/>
     <button id="save-key-btn" class="btn btn-primary">
       <span id="save-key-label">Connect Account</span>
     </button>
-
     <div id="key-error" class="error-msg hidden">Invalid API key. Please try again.</div>
-
     <div class="divider"></div>
-    <a id="get-key-link" href="https://driveload.onrender.com/account" target="_blank" class="link-row">
+    <a href="https://driveload.onrender.com/account" target="_blank" class="link-row">
       <span>Get your API key from DriveLoad</span>
       <span class="arrow">→</span>
     </a>
@@ -42,9 +36,9 @@
   <!-- ── Main View ── -->
   <div id="main-view" class="view hidden">
 
-    <!-- User info bar -->
+    <!-- User bar -->
     <div class="user-bar">
-      <div id="user-info" class="user-info">
+      <div class="user-info">
         <div class="user-avatar" id="user-avatar">U</div>
         <div>
           <div class="user-name" id="user-name">Loading…</div>
@@ -54,32 +48,43 @@
       <button id="disconnect-btn" class="icon-btn" title="Disconnect">✕</button>
     </div>
 
-    <!-- Detected URL -->
-    <div id="url-section">
-      <div id="url-found" class="url-card hidden">
-        <div class="url-card-top">
-          <span class="url-icon">🎬</span>
-          <span class="url-label">Drive video detected</span>
-        </div>
-        <div id="url-display" class="url-display"></div>
-      </div>
-      <div id="url-missing" class="empty-state hidden">
-        <div class="empty-icon">🔍</div>
-        <p>Navigate to a Google Drive file (video, PDF, Word, image…), then click Download.</p>
-        <p style="margin-top:8px;font-size:11px;color:#334155;">💡 For PDFs: open the file in Drive viewer and scroll through all pages first, then click Download.</p>
-      </div>
+    <!-- URL input -->
+    <div class="field-group">
+      <label class="field-label">Google Drive URL</label>
+      <input id="url-input" type="text" class="input" placeholder="https://drive.google.com/file/d/…"/>
     </div>
 
-    <!-- Cookie status -->
-    <div id="cookie-row" class="info-row">
-      <span class="info-icon">🍪</span>
-      <span id="cookie-text" class="info-text">Checking cookies…</span>
+    <!-- Tab strip -->
+    <div class="tab-strip">
+      <button id="tab-pdf" class="tab active" data-mode="pdf">📄 PDF (Viewer)</button>
+      <button id="tab-api" class="tab" data-mode="api">☁ Server Download</button>
     </div>
 
-    <!-- Download button -->
-    <button id="download-btn" class="btn btn-primary btn-lg" disabled>
-      <span id="dl-label">⬇ Download Video</span>
-    </button>
+    <!-- PDF panel -->
+    <div id="panel-pdf" class="panel">
+      <div class="info-box">
+        <p class="info-box-title">How PDF download works</p>
+        <ol class="steps">
+          <li>Open the PDF in Google Drive viewer</li>
+          <li>Scroll through <strong>all pages</strong> once</li>
+          <li>Come back here and click Download</li>
+        </ol>
+      </div>
+      <div id="cookie-row-pdf" class="info-row hidden">
+        <span class="info-icon">🍪</span>
+        <span id="cookie-text-pdf" class="info-text"></span>
+      </div>
+      <button id="download-pdf-btn" class="btn btn-primary btn-lg">📄 Download PDF from Viewer</button>
+    </div>
+
+    <!-- API panel -->
+    <div id="panel-api" class="panel hidden">
+      <div id="cookie-row-api" class="info-row">
+        <span class="info-icon">🍪</span>
+        <span id="cookie-text-api" class="info-text">Checking cookies…</span>
+      </div>
+      <button id="download-api-btn" class="btn btn-primary btn-lg">⬇ Download via Server</button>
+    </div>
 
     <!-- Progress -->
     <div id="progress-section" class="hidden">
@@ -89,14 +94,15 @@
       <div id="progress-label" class="progress-label">Starting…</div>
     </div>
 
-    <!-- Success -->
+    <!-- Success / Error -->
     <div id="success-msg" class="success-card hidden">
       <span class="success-icon">✓</span>
       <div>
-        <div class="success-title">Download queued!</div>
-        <div class="success-sub">Check your DriveLoad dashboard to track progress.</div>
+        <div class="success-title" id="success-title">Done!</div>
+        <div class="success-sub" id="success-sub">Check your Downloads folder.</div>
       </div>
     </div>
+    <div id="error-msg" class="error-msg hidden" style="margin-top:0;"></div>
 
     <!-- Footer -->
     <div class="footer">
