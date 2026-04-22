@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Admin — DriveLoad{% endblock %}
+{% block body %}
+<div class="dashboard-wrap">
+  <div class="sidebar">
+    <div class="sidebar-section">Admin</div>
+    <a href="/admin" class="active">👥 Users</a>
+    <a href="/dashboard">⬇ Downloader</a>
+    <a href="/logout">↩ Log out</a>
+  </div>
+
+  <div class="main-content">
+    <h2 style="font-size:1.4rem;font-weight:800;margin-bottom:4px;">Admin Panel</h2>
+    <p class="text-sub text-sm mb-4">Manage all users and their plans.</p>
+
+    <div class="card">
+      <p class="card-title">All Users ({{ users|length }})</p>
+      <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+        <thead>
+          <tr>
+            <th style="text-align:left;padding:8px 10px;color:var(--sub);border-bottom:1px solid var(--border);font-size:.75rem;text-transform:uppercase;">Name / Email</th>
+            <th style="text-align:left;padding:8px 10px;color:var(--sub);border-bottom:1px solid var(--border);font-size:.75rem;text-transform:uppercase;">Plan</th>
+            <th style="text-align:left;padding:8px 10px;color:var(--sub);border-bottom:1px solid var(--border);font-size:.75rem;text-transform:uppercase;">Downloads</th>
+            <th style="text-align:left;padding:8px 10px;color:var(--sub);border-bottom:1px solid var(--border);font-size:.75rem;text-transform:uppercase;">Joined</th>
+            <th style="text-align:left;padding:8px 10px;color:var(--sub);border-bottom:1px solid var(--border);font-size:.75rem;text-transform:uppercase;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td style="padding:10px;border-bottom:1px solid var(--border);">
+              <div style="font-weight:600;">{{ u.name }}
+                {% if u.is_admin %}<span style="font-size:.7rem;background:#6c63ff;color:#fff;padding:1px 6px;border-radius:4px;margin-left:4px;">ADMIN</span>{% endif %}
+              </div>
+              <div class="text-sub text-xs">{{ u.email }}</div>
+              {% if u.google_id %}<div class="text-xs" style="color:#4285F4;">Google</div>{% endif %}
+            </td>
+            <td style="padding:10px;border-bottom:1px solid var(--border);">
+              <span class="badge {% if u.plan == 'pro' %}badge-pro{% else %}badge-free{% endif %}">{{ u.plan|upper }}</span>
+            </td>
+            <td style="padding:10px;border-bottom:1px solid var(--border);">
+              {{ u.total_downloads }}
+            </td>
+            <td style="padding:10px;border-bottom:1px solid var(--border);color:var(--sub);">
+              {{ u.created_at.strftime("%b %d, %Y") if u.created_at else "—" }}
+            </td>
+            <td style="padding:10px;border-bottom:1px solid var(--border);">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                <!-- Toggle plan -->
+                <form method="POST" action="/admin/user/{{ u.id }}/plan">
+                  {% if u.plan == 'free' %}
+                    <input type="hidden" name="plan" value="pro"/>
+                    <button class="btn btn-primary btn-sm">→ Pro</button>
+                  {% else %}
+                    <input type="hidden" name="plan" value="free"/>
+                    <button class="btn btn-outline btn-sm">→ Free</button>
+                  {% endif %}
+                </form>
+                <!-- Reset downloads -->
+                <form method="POST" action="/admin/user/{{ u.id }}/reset-downloads">
+                  <button class="btn btn-muted btn-sm">Reset DL</button>
+                </form>
+                <!-- Delete (not for admin) -->
+                {% if not u.is_admin %}
+                <form method="POST" action="/admin/user/{{ u.id }}/delete"
+                      onsubmit="return confirm('Delete {{ u.name }}?')">
+                  <button class="btn btn-sm" style="background:#1f0707;color:#ef4444;border:1px solid #ef4444;">Delete</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

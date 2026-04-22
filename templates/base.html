@@ -110,6 +110,9 @@ textarea.form-control{resize:vertical;font-family:'Courier New',monospace;font-s
     {% if current_user.is_authenticated %}
       <a href="/dashboard">Dashboard</a>
       <a href="/account">Account</a>
+      {% if current_user.is_admin %}
+        <a href="/admin" style="color:#a78bfa;">Admin</a>
+      {% endif %}
       <a href="/logout" class="btn btn-outline btn-sm">Log out</a>
     {% else %}
       <a href="/login">Log in</a>

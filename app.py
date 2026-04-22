@@ -70,6 +70,7 @@ class User(UserMixin, db.Model):
     stripe_subscription_id = db.Column(db.String(120))
     cookies_json           = db.Column(db.Text, default="{}")
     total_downloads        = db.Column(db.Integer, default=0)   # lifetime counter
+    is_admin               = db.Column(db.Boolean, default=False)
     created_at             = db.Column(db.DateTime, default=datetime.utcnow)
     downloads              = db.relationship("Download", backref="user", lazy=True,
                                              order_by="Download.created_at.desc()")
@@ -590,6 +591,52 @@ def regenerate_api_key():
     return redirect(url_for("account"))
 
 
+# ── admin ────────────────────────────────────────────────────────────────────
+def admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not current_user.is_authenticated or not current_user.is_admin:
+            return redirect(url_for("dashboard"))
+        return f(*args, **kwargs)
+    return decorated
+
+@app.route("/admin")
+@login_required
+@admin_required
+def admin_panel():
+    users = User.query.order_by(User.created_at.desc()).all()
+    return render_template("admin.html", users=users)
+
+@app.route("/admin/user/<int:uid>/plan", methods=["POST"])
+@login_required
+@admin_required
+def admin_set_plan(uid):
+    u = User.query.get_or_404(uid)
+    u.plan = request.form.get("plan", "free")
+    db.session.commit()
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/user/<int:uid>/reset-downloads", methods=["POST"])
+@login_required
+@admin_required
+def admin_reset_downloads(uid):
+    u = User.query.get_or_404(uid)
+    u.total_downloads = 0
+    db.session.commit()
+    return redirect(url_for("admin_panel"))
+
+@app.route("/admin/user/<int:uid>/delete", methods=["POST"])
+@login_required
+@admin_required
+def admin_delete_user(uid):
+    u = User.query.get_or_404(uid)
+    if u.email == "pediatricahmed@gmail.com":
+        return redirect(url_for("admin_panel"))  # can't delete owner
+    db.session.delete(u)
+    db.session.commit()
+    return redirect(url_for("admin_panel"))
+
 # ── billing ───────────────────────────────────────────────────────────────────
 @app.route("/billing/checkout", methods=["POST"])
 @login_required
@@ -676,7 +723,7 @@ with app.app_context():
             conn.execute(text("ALTER TABLE user ADD COLUMN api_key VARCHAR(64)"))
         if "total_downloads" not in existing:
             conn.execute(text("ALTER TABLE user ADD COLUMN total_downloads INTEGER DEFAULT 0"))
-        # SQLite: recreate table to allow NULL on password_hash
+        # SQLite: recreate table with all columns (allows NULL password_hash, adds is_admin)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_new (
                 id INTEGER PRIMARY KEY,
@@ -690,17 +737,24 @@ with app.app_context():
                 stripe_subscription_id VARCHAR(120),
                 cookies_json TEXT DEFAULT '{}',
                 total_downloads INTEGER DEFAULT 0,
+                is_admin BOOLEAN DEFAULT 0,
                 created_at DATETIME
             )
         """))
+        # Copy existing data; is_admin defaults to 0
         conn.execute(text("""
             INSERT OR IGNORE INTO user_new
             SELECT id, name, email, password_hash, google_id, api_key, plan,
                    stripe_customer_id, stripe_subscription_id, cookies_json,
-                   total_downloads, created_at FROM user
+                   total_downloads, 0, created_at FROM user
         """))
         conn.execute(text("DROP TABLE user"))
         conn.execute(text("ALTER TABLE user_new RENAME TO user"))
+        # Grant admin + pro to the owner account
+        conn.execute(text("""
+            UPDATE user SET is_admin=1, plan='pro'
+            WHERE email='pediatricahmed@gmail.com'
+        """))
         conn.commit()
 
 if __name__ == "__main__":
