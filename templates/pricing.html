@@ -74,15 +74,9 @@
           <div class="btn btn-muted w-full" style="justify-content:center;padding:11px;cursor:default;">
             ✓ Current plan
           </div>
-          <form method="POST" action="/billing/portal" class="mt-2">
-            <button type="submit" class="btn btn-outline w-full btn-sm"
-                    style="justify-content:center;">Manage subscription</button>
-          </form>
         {% else %}
-          <form method="POST" action="/billing/checkout">
-            <button type="submit" class="btn btn-primary w-full"
-                    style="justify-content:center;padding:11px;">Upgrade to Pro</button>
-          </form>
+          <div id="paypal-button-container"></div>
+          <p id="paypal-msg" class="text-xs text-sub mt-2" style="text-align:center;"></p>
         {% endif %}
       {% else %}
         <a href="/register" class="btn btn-primary w-full" style="justify-content:center;padding:11px;">
@@ -108,4 +102,35 @@
     {% endfor %}
   </div>
 </div>
+
+{% if current_user.is_authenticated and current_user.plan != 'pro' and paypal_client_id %}
+<script src="https://www.paypal.com/sdk/js?client-id={{ paypal_client_id }}&vault=true&intent=subscription" data-sdk-integration-source="button-factory"></script>
+<script>
+paypal.Buttons({
+  style: { shape:'rect', color:'blue', layout:'vertical', label:'subscribe' },
+  createSubscription: function(data, actions){
+    return actions.subscription.create({ plan_id: '{{ paypal_plan_id }}' });
+  },
+  onApprove: function(data, actions){
+    document.getElementById('paypal-msg').textContent = 'Processing…';
+    fetch('/billing/paypal/success', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subscriptionID: data.subscriptionID })
+    })
+    .then(r => r.json())
+    .then(r => {
+      if(r.ok){ window.location.href = '/billing/success'; }
+      else { document.getElementById('paypal-msg').textContent = 'Error: ' + r.message; }
+    })
+    .catch(() => {
+      document.getElementById('paypal-msg').textContent = 'Something went wrong. Please try again.';
+    });
+  },
+  onError: function(err){
+    document.getElementById('paypal-msg').textContent = 'PayPal error. Please try again.';
+  }
+}).render('#paypal-button-container');
+</script>
+{% endif %}
 {% endblock %}

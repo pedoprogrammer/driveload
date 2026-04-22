@@ -34,6 +34,10 @@ stripe.api_key         = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_PRICE_ID        = os.getenv("STRIPE_PRICE_ID", "")
 STRIPE_WEBHOOK_SECRET  = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 APP_URL                = os.getenv("APP_URL", "http://localhost:8080")
+PAYPAL_CLIENT_ID       = os.getenv("PAYPAL_CLIENT_ID", "")
+PAYPAL_SECRET          = os.getenv("PAYPAL_SECRET", "")
+PAYPAL_PLAN_ID         = os.getenv("PAYPAL_PLAN_ID", "")
+PAYPAL_API             = "https://api-m.paypal.com"
 DOWNLOAD_DIR           = Path(os.getenv("DOWNLOAD_DIR", str(Path.home() / "Downloads")))
 FREE_LIMIT             = int(os.getenv("FREE_LIMIT", "3"))   # lifetime, not monthly
 
@@ -507,7 +511,9 @@ def landing():
 
 @app.route("/pricing")
 def pricing():
-    return render_template("pricing.html")
+    return render_template("pricing.html",
+                           paypal_client_id=PAYPAL_CLIENT_ID,
+                           paypal_plan_id=PAYPAL_PLAN_ID)
 
 
 OWNER_EMAIL = "pediatricahmed@gmail.com"
@@ -989,6 +995,54 @@ def billing_webhook():
         if u:
             u.plan = "pro" if sub.get("status") in ("active", "trialing") else "free"
             db.session.commit()
+    return "ok", 200
+
+
+# ── PayPal billing ────────────────────────────────────────────────────────────
+def _paypal_token():
+    r = http.post(f"{PAYPAL_API}/v1/oauth2/token",
+                  auth=(PAYPAL_CLIENT_ID, PAYPAL_SECRET),
+                  data={"grant_type": "client_credentials"}, timeout=15)
+    return r.json().get("access_token")
+
+def _paypal_get_subscription(sub_id):
+    token = _paypal_token()
+    r = http.get(f"{PAYPAL_API}/v1/billing/subscriptions/{sub_id}",
+                 headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    return r.json()
+
+@app.route("/billing/paypal/success", methods=["POST"])
+@login_required
+def paypal_success():
+    sub_id = (request.json or {}).get("subscriptionID", "")
+    if not sub_id:
+        return jsonify(ok=False, message="Missing subscription ID"), 400
+    try:
+        sub = _paypal_get_subscription(sub_id)
+        if sub.get("status") == "ACTIVE":
+            current_user.plan = "pro"
+            current_user.stripe_subscription_id = sub_id
+            db.session.commit()
+            return jsonify(ok=True)
+        return jsonify(ok=False, message="Subscription not active"), 400
+    except Exception as e:
+        return jsonify(ok=False, message=str(e)), 500
+
+@app.route("/billing/paypal/webhook", methods=["POST"])
+def paypal_webhook():
+    data       = request.json or {}
+    event_type = data.get("event_type", "")
+    resource   = data.get("resource", {})
+    sub_id     = resource.get("id", "")
+    u          = User.query.filter_by(stripe_subscription_id=sub_id).first()
+    if u:
+        if event_type == "BILLING.SUBSCRIPTION.ACTIVATED":
+            u.plan = "pro"
+        elif event_type in ("BILLING.SUBSCRIPTION.CANCELLED",
+                            "BILLING.SUBSCRIPTION.SUSPENDED",
+                            "BILLING.SUBSCRIPTION.EXPIRED"):
+            u.plan = "free"
+        db.session.commit()
     return "ok", 200
 
 
