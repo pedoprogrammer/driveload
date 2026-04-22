@@ -553,18 +553,25 @@ def dashboard():
 @app.route("/api/cookies/save", methods=["POST"])
 @login_required
 def api_cookies_save():
-    raw = request.json.get("cookies", "")
+    data = request.json.get("cookies", None)
     try:
-        data = json.loads(raw)
-        cookies = ({item["name"]: item["value"] for item in data
-                    if "name" in item} if isinstance(data, list) else data)
+        # Accept either a pre-parsed list/dict, or a raw JSON string
+        if isinstance(data, str):
+            data = json.loads(data)
+        if isinstance(data, list):
+            cookies = {item["name"]: item["value"]
+                       for item in data if "name" in item and "value" in item}
+        elif isinstance(data, dict):
+            cookies = data
+        else:
+            return jsonify(ok=False, message="Unrecognised cookie format"), 400
     except Exception as e:
         return jsonify(ok=False, message=f"Parse error: {e}"), 400
     if not cookies:
-        return jsonify(ok=False, message="No cookies found"), 400
+        return jsonify(ok=False, message="No cookies found in the pasted data"), 400
     current_user.cookies = cookies
     db.session.commit()
-    return jsonify(ok=True, message=f"{len(cookies)} cookies saved")
+    return jsonify(ok=True, message=f"{len(cookies)} cookies saved successfully")
 
 @app.route("/api/cookies/clear", methods=["POST"])
 @login_required
