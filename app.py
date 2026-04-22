@@ -302,6 +302,7 @@ def _make_google_session(cookies):
 def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
     """
     Stream-download a Google Workspace file as Office format.
+    Visits the page first to establish a full session, then exports.
     Returns size_mb.
     """
     fmt_map  = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "pdf": "pdf"}
@@ -309,33 +310,47 @@ def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
                 "pptx": "presentation", "pdf": "document"}
     fmt      = fmt_map.get(gdoc_type, "pdf")
     doc_type = type_map.get(gdoc_type, "document")
-
-    base_url   = f"https://docs.google.com/{doc_type}/d/{file_id}"
-    export_url = f"{base_url}/export?format={fmt}"
+    base_url = f"https://docs.google.com/{doc_type}/d/{file_id}"
 
     session = _make_google_session(cookies)
-    session.headers["Referer"] = f"{base_url}/edit"
 
-    _set_status(uid, f"Exporting as .{fmt}…", 5)
+    # Step 1 — visit the page to get a proper session (Google sets extra cookies here)
+    _set_status(uid, "Opening file page…", 3)
+    try:
+        session.get(f"{base_url}/edit", timeout=30, allow_redirects=True)
+    except Exception:
+        pass  # Best-effort; continue even if this fails
 
-    # Try export URL; if HTML is returned, try the /export/{fmt} variant
-    for url in [export_url, f"{base_url}/export/{fmt}"]:
-        r = session.get(url, stream=True, allow_redirects=True, timeout=120)
-        ct = r.headers.get("Content-Type", "")
-        if "text/html" not in ct:
-            break
-    else:
-        # Both failed — try Drive's uc?export=download as last resort
-        r = session.get(
-            f"https://drive.google.com/uc?export=download&id={file_id}",
-            stream=True, allow_redirects=True, timeout=120
+    # Step 2 — try export URLs in order
+    export_urls = [
+        f"{base_url}/export/pptx" if fmt == "pptx" else None,
+        f"{base_url}/export/{fmt}",
+        f"{base_url}/export?format={fmt}",
+        f"https://drive.google.com/uc?export=download&id={file_id}",
+    ]
+    export_urls = [u for u in export_urls if u]
+
+    _set_status(uid, f"Exporting as .{fmt}…", 8)
+    last_ct = ""
+    r = None
+    for url in export_urls:
+        session.headers["Referer"] = f"{base_url}/edit"
+        try:
+            resp = session.get(url, stream=True, allow_redirects=True, timeout=120)
+            ct   = resp.headers.get("Content-Type", "")
+            if "text/html" not in ct and resp.status_code == 200:
+                r = resp
+                break
+            last_ct = ct
+        except Exception:
+            continue
+
+    if r is None:
+        raise RuntimeError(
+            f"Google blocked the export as .{fmt}. "
+            "This usually means: (1) your cookies are expired — re-export from docs.google.com, "
+            "or (2) the file owner disabled downloads."
         )
-        ct = r.headers.get("Content-Type", "")
-        if "text/html" in ct:
-            raise RuntimeError(
-                "Could not export the file. Your cookies may have expired — "
-                "please refresh them from drive.google.com and try again."
-            )
 
     total    = int(r.headers.get("content-length", 0))
     received = 0
@@ -345,10 +360,11 @@ def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
                 f.write(chunk)
                 received += len(chunk)
                 if total:
-                    pct = received / total * 100
+                    pct = 8 + (received / total * 90)
                     _set_status(uid, f"Downloading… {pct:.1f}%", pct)
 
-    cookies.update(session.cookies.get_dict())
+    if isinstance(cookies, dict):
+        cookies.update(session.cookies.get_dict())
     return received / 1048576
 
 def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
