@@ -158,6 +158,12 @@ def _set_status(uid, status, progress=None):
 
 
 # ── download helpers ──────────────────────────────────────────────────────────
+def _cookies_dict(cookies):
+    """Return a flat {name: value} dict regardless of whether cookies is a list or dict."""
+    if isinstance(cookies, list):
+        return {c["name"]: c["value"] for c in cookies if "name" in c and "value" in c}
+    return dict(cookies) if cookies else {}
+
 MIME_EXT = {
     "application/pdf":                                                          ".pdf",
     "application/msword":                                                       ".doc",
@@ -199,8 +205,8 @@ def get_video_info(file_id, cookies):
     """Try Drive's video streaming API — returns (stream_url, title) or (None, None)."""
     url = (f"https://drive.google.com/u/0/get_video_info"
            f"?docid={file_id}&drive_originator_app=303")
-    r = http.get(url, cookies=cookies, timeout=30)
-    cookies.update(r.cookies.get_dict())
+    cd  = _cookies_dict(cookies)
+    r   = http.get(url, cookies=cd, timeout=30)
     video_url = title = None
     for part in r.text.split("&"):
         if part.startswith("title=") and not title:
@@ -220,7 +226,6 @@ def get_direct_download(file_id, cookies):
     base    = f"https://drive.google.com/uc?export=download&id={file_id}"
     session = _make_google_session(cookies)
     r       = session.get(base, stream=True, timeout=30, allow_redirects=True)
-    cookies.update(session.cookies.get_dict())
 
     # Google shows an HTML confirmation page for large files
     ct = r.headers.get("Content-Type", "")
@@ -370,7 +375,7 @@ def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
 def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
     try:
         r = http.get(url, headers={"Range": f"bytes={start}-{end}"},
-                     cookies=cookies, stream=True, timeout=60)
+                     cookies=_cookies_dict(cookies), stream=True, timeout=60)
         if r.status_code in (200, 206):
             path = os.path.join(tmpdir, f"part_{pnum:04d}.tmp")
             with open(path, "wb") as f:
@@ -384,13 +389,14 @@ def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
 
 def download_file(uid, dl_url, cookies, out_path, threads=8, chunk_mb=6):
     """Multi-threaded chunked downloader. Falls back to streaming for small files."""
-    head = http.head(dl_url, cookies=cookies, allow_redirects=True, timeout=30)
+    cd   = _cookies_dict(cookies)
+    head = http.head(dl_url, cookies=cd, allow_redirects=True, timeout=30)
     size = int(head.headers.get("content-length", 0))
 
     if not size:
         # Streaming fallback (no content-length header)
         _set_status(uid, "Downloading…", 5)
-        with http.get(dl_url, cookies=cookies, stream=True, timeout=120) as r:
+        with http.get(dl_url, cookies=cd, stream=True, timeout=120) as r:
             with open(out_path, "wb") as f:
                 for chunk in r.iter_content(65536):
                     if chunk:
@@ -405,7 +411,7 @@ def download_file(uid, dl_url, cookies, out_path, threads=8, chunk_mb=6):
     os.makedirs(tmpdir, exist_ok=True)
     done, received = {}, 0
     with ThreadPoolExecutor(max_workers=threads) as ex:
-        futs = {ex.submit(_dl_chunk, dl_url, cookies, s, e, pn, tmpdir): pn
+        futs = {ex.submit(_dl_chunk, dl_url, cd, s, e, pn, tmpdir): pn
                 for s, e, pn in ranges}
         for f in as_completed(futs):
             pn, path = f.result()
