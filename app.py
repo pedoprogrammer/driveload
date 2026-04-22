@@ -8,7 +8,7 @@ import requests as http
 import stripe
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
-from flask import (Flask, Response, flash, jsonify, redirect,
+from flask import (Flask, Response, after_this_request, flash, jsonify, redirect,
                    render_template, request, send_file, stream_with_context, url_for)
 from flask_cors import CORS
 from flask_login import (LoginManager, UserMixin, current_user,
@@ -742,8 +742,38 @@ def api_download_file():
     name = item["filename"]
     if not os.path.exists(path):
         return jsonify(ok=False, message="File not found"), 404
-    return send_file(path, as_attachment=True, download_name=name,
-                     mimetype="video/mp4")
+
+    @after_this_request
+    def _cleanup(response):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        return response
+
+    ext  = os.path.splitext(name)[1].lower()
+    mime = {
+        ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+        ".pdf": "application/pdf",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".ppt": "application/vnd.ms-powerpoint",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+        ".gif": "image/gif", ".webp": "image/webp",
+        ".zip": "application/zip", ".mp3": "audio/mpeg",
+    }.get(ext, "application/octet-stream")
+
+    return send_file(path, as_attachment=True, download_name=name, mimetype=mime)
+
+@app.route("/api/download/count")
+@login_required
+def api_download_count():
+    """Return number of ready files without consuming them."""
+    st = _get_state(current_user.id)
+    return jsonify(count=len(st.get("ready_files", [])))
 
 def _get_session_queue():
     from flask import session

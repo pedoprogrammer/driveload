@@ -229,31 +229,51 @@ function connectSSE(){
     if(d.done){
       queue=[]; renderQueue();
       document.getElementById('dl-btn').disabled=false;
-      // Trigger browser file download
-      triggerFileDownload();
-      setTimeout(()=>location.reload(), 3000); // refresh history
+      showSaveButton();
     }
   };
   es.onerror = () => setTimeout(connectSSE, 3000);
 }
 
-// ── file download trigger ─────────────────────────────────────────────────────
-async function triggerFileDownload(){
-  // Ask server if a file is ready, then download it
-  const check = await fetch('/api/download/file').catch(()=>null);
-  if(!check || !check.ok) return;
-  const blob = await check.blob();
-  const name = check.headers.get('Content-Disposition')
-    ?.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)?.[1]?.replace(/['"]/g,'')
-    || 'video.mp4';
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  showToast('File downloaded to your Downloads folder!', true);
-  // Download remaining files if queue had multiple
-  setTimeout(triggerFileDownload, 500);
+// ── save button (appears after server finishes downloading) ───────────────────
+function showSaveButton(){
+  let btn = document.getElementById('save-btn');
+  if(!btn){
+    btn = document.createElement('button');
+    btn.id = 'save-btn';
+    btn.className = 'btn btn-primary w-full';
+    btn.style.cssText = 'justify-content:center;padding:13px;font-size:1rem;margin-bottom:12px;';
+    document.getElementById('dl-btn').insertAdjacentElement('afterend', btn);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Save File to Device';
+  btn.onclick = saveNextFile;
+  showToast('File ready — click "Save File to Device"!', true);
+}
+
+async function saveNextFile(){
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Starting download…';
+  // Use a hidden iframe: Content-Disposition:attachment triggers the browser
+  // save dialog without requiring a user-gesture token on the a.click() call
+  const iframe = document.createElement('iframe');
+  iframe.style.display = 'none';
+  iframe.src = '/api/download/file';
+  document.body.appendChild(iframe);
+  setTimeout(() => { try{ iframe.remove(); }catch(e){} }, 120000);
+  showToast('Download started — check your Downloads folder!', true);
+  // Wait briefly then check how many files remain
+  await new Promise(r => setTimeout(r, 2000));
+  const cr = await fetch('/api/download/count').catch(()=>null);
+  const data = cr ? await cr.json().catch(()=>null) : null;
+  if(data && data.count > 0){
+    btn.disabled = false;
+    btn.textContent = `Save Next File (${data.count} remaining)`;
+  } else {
+    btn.remove();
+    setTimeout(()=>location.reload(), 2000);
+  }
 }
 
 // ── toast ─────────────────────────────────────────────────────────────────────
