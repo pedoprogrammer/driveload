@@ -574,7 +574,7 @@ def auth_google():
         flash("Google login is not configured yet.", "error")
         return redirect(url_for("login"))
     redirect_uri = url_for("auth_google_callback", _external=True)
-    return google_oauth.authorize_redirect(redirect_uri)
+    return google_oauth.authorize_redirect(redirect_uri, prompt="select_account")
 
 @app.route("/auth/google/callback")
 def auth_google_callback():
