@@ -260,23 +260,43 @@ def get_direct_download(file_id, cookies):
 
     return dl_url, fname, ext
 
+GOOGLE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
 def _make_google_session(cookies):
-    """Build a requests.Session with cookies scoped to .google.com."""
-    from requests.cookies import RequestsCookieJar
+    """
+    Build a requests.Session.
+    cookies may be a flat {name:value} dict OR a list of full cookie objects
+    (as exported by Cookie-Editor with domain/path included).
+    """
+    from requests.cookies import RequestsCookieJar, create_cookie
     jar = RequestsCookieJar()
-    for k, v in cookies.items():
-        jar.set(k, v, domain=".google.com", path="/")
+    if isinstance(cookies, list):
+        # Full cookie objects — preserve domain/path
+        for c in cookies:
+            try:
+                jar.set_cookie(create_cookie(
+                    c["name"], c["value"],
+                    domain=c.get("domain", ".google.com"),
+                    path=c.get("path", "/"),
+                ))
+            except Exception:
+                pass
+    else:
+        # Flat dict — send to all Google subdomains
+        for k, v in cookies.items():
+            for domain in [".google.com", "docs.google.com", "drive.google.com"]:
+                jar.set(k, v, domain=domain, path="/")
     session = http.Session()
     session.cookies = jar
-    session.headers.update({
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    })
+    session.headers.update(GOOGLE_HEADERS)
     return session
 
 def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
@@ -400,7 +420,9 @@ def _worker(uid, queue):
                 if not user or not user.can_download():
                     _set_status(uid, "Download limit reached. Upgrade to Pro.")
                     break
-                cookies = dict(user.cookies)
+                # Use full cookie objects if available (preserves domain/path)
+                raw_cookies = user.cookies
+                cookies = raw_cookies if isinstance(raw_cookies, list) else dict(raw_cookies)
 
                 gdoc_type = detect_gdoc_type(orig_url)
                 tmpdir = Path("/tmp/driveload") / str(uid)
@@ -574,21 +596,21 @@ def dashboard():
 def api_cookies_save():
     data = request.json.get("cookies", None)
     try:
-        # Accept either a pre-parsed list/dict, or a raw JSON string
         if isinstance(data, str):
             data = json.loads(data)
         if isinstance(data, list):
-            cookies = {item["name"]: item["value"]
-                       for item in data if "name" in item and "value" in item}
+            # Keep full objects from Cookie-Editor (preserves domain/path)
+            cookies = [c for c in data if "name" in c and "value" in c]
         elif isinstance(data, dict):
-            cookies = data
+            # Convert flat dict → list for uniform storage
+            cookies = [{"name": k, "value": v} for k, v in data.items()]
         else:
             return jsonify(ok=False, message="Unrecognised cookie format"), 400
     except Exception as e:
         return jsonify(ok=False, message=f"Parse error: {e}"), 400
     if not cookies:
         return jsonify(ok=False, message="No cookies found in the pasted data"), 400
-    current_user.cookies = cookies
+    current_user.cookies = cookies   # stored as list of full objects
     db.session.commit()
     return jsonify(ok=True, message=f"{len(cookies)} cookies saved successfully")
 
