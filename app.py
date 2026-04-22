@@ -217,12 +217,9 @@ def get_direct_download(file_id, cookies):
     Handles Google's large-file virus-scan confirmation page.
     Returns (download_url, filename, ext).
     """
-    base = f"https://drive.google.com/uc?export=download&id={file_id}"
-    session = http.Session()
-    for k, v in cookies.items():
-        session.cookies.set(k, v)
-
-    r = session.get(base, stream=True, timeout=30, allow_redirects=True)
+    base    = f"https://drive.google.com/uc?export=download&id={file_id}"
+    session = _make_google_session(cookies)
+    r       = session.get(base, stream=True, timeout=30, allow_redirects=True)
     cookies.update(session.cookies.get_dict())
 
     # Google shows an HTML confirmation page for large files
@@ -263,10 +260,28 @@ def get_direct_download(file_id, cookies):
 
     return dl_url, fname, ext
 
+def _make_google_session(cookies):
+    """Build a requests.Session with cookies scoped to .google.com."""
+    from requests.cookies import RequestsCookieJar
+    jar = RequestsCookieJar()
+    for k, v in cookies.items():
+        jar.set(k, v, domain=".google.com", path="/")
+    session = http.Session()
+    session.cookies = jar
+    session.headers.update({
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    })
+    return session
+
 def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
     """
     Stream-download a Google Workspace file as Office format.
-    Uses a cookie session to follow all Google auth redirects properly.
     Returns size_mb.
     """
     fmt_map  = {"docx": "docx", "xlsx": "xlsx", "pptx": "pptx", "pdf": "pdf"}
@@ -274,31 +289,35 @@ def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
                 "pptx": "presentation", "pdf": "document"}
     fmt      = fmt_map.get(gdoc_type, "pdf")
     doc_type = type_map.get(gdoc_type, "document")
-    export_url = (f"https://docs.google.com/{doc_type}/d/{file_id}"
-                  f"/export?format={fmt}")
 
-    session = http.Session()
-    session.headers.update({
-        "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                       "AppleWebKit/537.36 (KHTML, like Gecko) "
-                       "Chrome/124.0.0.0 Safari/537.36")
-    })
-    for k, v in cookies.items():
-        session.cookies.set(k, v)
+    base_url   = f"https://docs.google.com/{doc_type}/d/{file_id}"
+    export_url = f"{base_url}/export?format={fmt}"
+
+    session = _make_google_session(cookies)
+    session.headers["Referer"] = f"{base_url}/edit"
 
     _set_status(uid, f"Exporting as .{fmt}…", 5)
-    r = session.get(export_url, stream=True, allow_redirects=True, timeout=120)
 
-    # Guard: if Google returned HTML (error / login page) raise clearly
-    ct = r.headers.get("Content-Type", "")
-    if "text/html" in ct:
-        body = r.text[:300]
-        raise RuntimeError(
-            "Google returned an error page. Make sure your cookies are fresh "
-            f"and you have access to this file. Detail: {body[:120]}"
+    # Try export URL; if HTML is returned, try the /export/{fmt} variant
+    for url in [export_url, f"{base_url}/export/{fmt}"]:
+        r = session.get(url, stream=True, allow_redirects=True, timeout=120)
+        ct = r.headers.get("Content-Type", "")
+        if "text/html" not in ct:
+            break
+    else:
+        # Both failed — try Drive's uc?export=download as last resort
+        r = session.get(
+            f"https://drive.google.com/uc?export=download&id={file_id}",
+            stream=True, allow_redirects=True, timeout=120
         )
+        ct = r.headers.get("Content-Type", "")
+        if "text/html" in ct:
+            raise RuntimeError(
+                "Could not export the file. Your cookies may have expired — "
+                "please refresh them from drive.google.com and try again."
+            )
 
-    total = int(r.headers.get("content-length", 0))
+    total    = int(r.headers.get("content-length", 0))
     received = 0
     with open(out_path, "wb") as f:
         for chunk in r.iter_content(65536):
