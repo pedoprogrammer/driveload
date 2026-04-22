@@ -2,51 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
   <title>DriveLoad</title>
   <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
+
+  <!-- ── Header ── -->
   <div class="header">
-    <span class="logo">DriveLoad</span>
-    <span id="plan-badge" class="badge"></span>
+    <div class="header-left">
+      <div class="logo-mark">D</div>
+      <span class="logo-text">DriveLoad</span>
+    </div>
+    <div id="plan-pill" class="plan-pill hidden"></div>
   </div>
 
-  <!-- Not configured state -->
+  <!-- ── Setup View ── -->
   <div id="setup-view" class="view hidden">
-    <p class="hint">Paste your API key from your <strong>DriveLoad account</strong> to connect.</p>
-    <input id="api-key-input" type="text" placeholder="Paste API key here..." class="input"/>
-    <button id="save-key-btn" class="btn btn-primary">Connect Account</button>
-    <a href="https://driveload.onrender.com/account" target="_blank" class="link">Get API key →</a>
+    <div class="setup-icon">🔑</div>
+    <h2 class="setup-title">Connect Your Account</h2>
+    <p class="setup-desc">Paste your API key from DriveLoad to get started.</p>
+
+    <div class="input-group">
+      <input id="api-key-input" type="text" class="input" placeholder="Paste API key here…" autocomplete="off" spellcheck="false"/>
+    </div>
+
+    <button id="save-key-btn" class="btn btn-primary">
+      <span id="save-key-label">Connect Account</span>
+    </button>
+
+    <div id="key-error" class="error-msg hidden">Invalid API key. Please try again.</div>
+
+    <div class="divider"></div>
+    <a id="get-key-link" href="https://driveload.onrender.com/account" target="_blank" class="link-row">
+      <span>Get your API key from DriveLoad</span>
+      <span class="arrow">→</span>
+    </a>
   </div>
 
-  <!-- Main state -->
+  <!-- ── Main View ── -->
   <div id="main-view" class="view hidden">
-    <div id="url-detect" class="url-box hidden">
-      <p class="url-label">Detected Drive video:</p>
-      <p id="detected-url" class="url-text"></p>
-    </div>
-    <div id="no-url" class="hint hidden">
-      Navigate to a Google Drive video page, then click Download.
-    </div>
 
-    <div id="cookies-status" class="status-row"></div>
-
-    <button id="download-btn" class="btn btn-primary" disabled>Download Video</button>
-
-    <div id="progress-wrap" class="hidden">
-      <div class="progress-bar-bg">
-        <div id="progress-bar" class="progress-bar-fill" style="width:0%"></div>
+    <!-- User info bar -->
+    <div class="user-bar">
+      <div id="user-info" class="user-info">
+        <div class="user-avatar" id="user-avatar">U</div>
+        <div>
+          <div class="user-name" id="user-name">Loading…</div>
+          <div id="quota-text" class="quota-text"></div>
+        </div>
       </div>
-      <p id="progress-text" class="progress-text">Starting...</p>
+      <button id="disconnect-btn" class="icon-btn" title="Disconnect">✕</button>
     </div>
 
-    <div id="done-msg" class="done hidden">Download queued! Check your DriveLoad dashboard.</div>
-
-    <div class="footer-row">
-      <span id="downloads-left" class="hint-sm"></span>
-      <button id="disconnect-btn" class="link-btn">Disconnect</button>
+    <!-- Detected URL -->
+    <div id="url-section">
+      <div id="url-found" class="url-card hidden">
+        <div class="url-card-top">
+          <span class="url-icon">🎬</span>
+          <span class="url-label">Drive video detected</span>
+        </div>
+        <div id="url-display" class="url-display"></div>
+      </div>
+      <div id="url-missing" class="empty-state hidden">
+        <div class="empty-icon">🔍</div>
+        <p>Navigate to a Google Drive video page, then click Download.</p>
+      </div>
     </div>
+
+    <!-- Cookie status -->
+    <div id="cookie-row" class="info-row">
+      <span class="info-icon">🍪</span>
+      <span id="cookie-text" class="info-text">Checking cookies…</span>
+    </div>
+
+    <!-- Download button -->
+    <button id="download-btn" class="btn btn-primary btn-lg" disabled>
+      <span id="dl-label">⬇ Download Video</span>
+    </button>
+
+    <!-- Progress -->
+    <div id="progress-section" class="hidden">
+      <div class="progress-track">
+        <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+      </div>
+      <div id="progress-label" class="progress-label">Starting…</div>
+    </div>
+
+    <!-- Success -->
+    <div id="success-msg" class="success-card hidden">
+      <span class="success-icon">✓</span>
+      <div>
+        <div class="success-title">Download queued!</div>
+        <div class="success-sub">Check your DriveLoad dashboard to track progress.</div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <a href="https://driveload.onrender.com/dashboard" target="_blank" class="footer-link">Open Dashboard →</a>
+    </div>
+
   </div>
 
   <script src="popup.js"></script>

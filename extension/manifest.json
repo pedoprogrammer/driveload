@@ -3,10 +3,11 @@
   "name": "DriveLoad",
   "version": "1.0.0",
   "description": "Download Google Drive view-only videos directly from your browser.",
-  "permissions": ["cookies", "activeTab", "storage"],
+  "permissions": ["cookies", "activeTab", "storage", "tabs"],
   "host_permissions": [
     "https://drive.google.com/*",
-    "https://*.google.com/*"
+    "https://*.google.com/*",
+    "https://driveload.onrender.com/*"
   ],
   "action": {
     "default_popup": "popup.html",

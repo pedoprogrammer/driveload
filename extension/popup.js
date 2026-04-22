@@ -1,34 +1,40 @@
 const API_BASE = "https://driveload.onrender.com";
 
-// ── DOM refs ─────────────────────────────────────────────────────────────────
+// ── DOM refs ──────────────────────────────────────────────────────────────────
 const setupView    = document.getElementById("setup-view");
 const mainView     = document.getElementById("main-view");
 const apiKeyInput  = document.getElementById("api-key-input");
 const saveKeyBtn   = document.getElementById("save-key-btn");
-const planBadge    = document.getElementById("plan-badge");
-const urlDetect    = document.getElementById("url-detect");
-const detectedUrl  = document.getElementById("detected-url");
-const noUrl        = document.getElementById("no-url");
-const cookiesStatus= document.getElementById("cookies-status");
+const saveKeyLabel = document.getElementById("save-key-label");
+const keyError     = document.getElementById("key-error");
+const planPill     = document.getElementById("plan-pill");
+const userName     = document.getElementById("user-name");
+const userAvatar   = document.getElementById("user-avatar");
+const quotaText    = document.getElementById("quota-text");
+const urlFound     = document.getElementById("url-found");
+const urlMissing   = document.getElementById("url-missing");
+const urlDisplay   = document.getElementById("url-display");
+const cookieRow    = document.getElementById("cookie-row");
+const cookieText   = document.getElementById("cookie-text");
 const downloadBtn  = document.getElementById("download-btn");
-const progressWrap = document.getElementById("progress-wrap");
-const progressBar  = document.getElementById("progress-bar");
-const progressText = document.getElementById("progress-text");
-const doneMsg      = document.getElementById("done-msg");
-const downloadsLeft= document.getElementById("downloads-left");
+const dlLabel      = document.getElementById("dl-label");
+const progressSec  = document.getElementById("progress-section");
+const progressFill = document.getElementById("progress-fill");
+const progressLbl  = document.getElementById("progress-label");
+const successMsg   = document.getElementById("success-msg");
 const disconnectBtn= document.getElementById("disconnect-btn");
 
 let currentUrl  = null;
-let cookiesJson = null;
+let cookiesData = null;
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-chrome.storage.local.get(["apiKey", "userPlan", "downloadsUsed"], async (data) => {
+chrome.storage.local.get(["apiKey", "userData"], async (data) => {
   if (!data.apiKey) {
     show(setupView);
     return;
   }
   show(mainView);
-  renderPlan(data.userPlan, data.downloadsUsed);
+  if (data.userData) renderUser(data.userData);
   await detectDriveUrl();
   await fetchCookies();
 });
@@ -36,72 +42,114 @@ chrome.storage.local.get(["apiKey", "userPlan", "downloadsUsed"], async (data) =
 // ── Save API key ──────────────────────────────────────────────────────────────
 saveKeyBtn.addEventListener("click", async () => {
   const key = apiKeyInput.value.trim();
-  if (!key) return;
-  saveKeyBtn.textContent = "Connecting...";
-  saveKeyBtn.disabled = true;
+  if (!key) { shakeInput(); return; }
+
+  setLoading(true);
+  hide(keyError);
+  apiKeyInput.classList.remove("error");
 
   try {
-    const res  = await fetch(`${API_BASE}/api/v1/status`, {
+    const res = await fetch(`${API_BASE}/api/v1/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": key },
-      body: JSON.stringify({ url: "https://drive.google.com/" })
+      body: JSON.stringify({})
     });
-    const data = await res.json();
-    if (!data.ok && data.message === "Invalid API key") throw new Error("Invalid key");
 
-    await chrome.storage.local.set({
-      apiKey: key,
-      userPlan: data.plan || "free",
-      downloadsUsed: data.downloads_used || 0
-    });
+    if (res.status === 401) throw new Error("invalid");
+    const data = await res.json();
+    if (!data.ok) throw new Error("invalid");
+
+    const userData = {
+      plan:           data.plan || "free",
+      downloadsUsed:  data.downloads_used || 0
+    };
+
+    await chrome.storage.local.set({ apiKey: key, userData });
     location.reload();
+
   } catch (e) {
-    saveKeyBtn.textContent = "Connect Account";
-    saveKeyBtn.disabled = false;
-    apiKeyInput.style.borderColor = "#ef4444";
-    apiKeyInput.placeholder = "Invalid API key — try again";
+    setLoading(false);
+    apiKeyInput.classList.add("error");
+    show(keyError);
+    if (e.message !== "invalid") {
+      keyError.textContent = "Could not connect to DriveLoad. Check your internet connection.";
+    } else {
+      keyError.textContent = "Invalid API key. Please check and try again.";
+    }
   }
 });
+
+function setLoading(on) {
+  saveKeyBtn.disabled  = on;
+  saveKeyLabel.textContent = on ? "Connecting…" : "Connect Account";
+}
+
+function shakeInput() {
+  apiKeyInput.style.animation = "none";
+  setTimeout(() => { apiKeyInput.style.animation = ""; }, 10);
+  apiKeyInput.classList.add("error");
+  setTimeout(() => apiKeyInput.classList.remove("error"), 1500);
+}
 
 // ── Disconnect ────────────────────────────────────────────────────────────────
 disconnectBtn.addEventListener("click", () => {
   chrome.storage.local.clear(() => location.reload());
 });
 
+// ── Render user info ──────────────────────────────────────────────────────────
+function renderUser(ud) {
+  const plan = ud.plan || "free";
+  const used = ud.downloadsUsed || 0;
+
+  planPill.textContent  = plan.toUpperCase();
+  planPill.className    = "plan-pill " + (plan === "pro" ? "plan-pro" : "plan-free");
+  show(planPill);
+
+  userAvatar.textContent = plan === "pro" ? "★" : "U";
+  userName.textContent   = plan === "pro" ? "Pro Member" : "Free Plan";
+
+  if (plan === "pro") {
+    quotaText.textContent = "Unlimited downloads";
+  } else {
+    const left = Math.max(0, 3 - used);
+    quotaText.textContent = `${left} of 3 free downloads remaining`;
+  }
+}
+
 // ── Detect active tab URL ─────────────────────────────────────────────────────
 async function detectDriveUrl() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.url) return;
+  if (!tab?.url) { show(urlMissing); return; }
 
-  const match = tab.url.match(/drive\.google\.com\/file\/d\/([^/]+)/);
+  const match = tab.url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (match) {
     currentUrl = tab.url;
-    detectedUrl.textContent = tab.url;
-    show(urlDetect);
+    urlDisplay.textContent = tab.url;
+    show(urlFound);
     downloadBtn.disabled = false;
+    dlLabel.textContent  = "⬇ Download Video";
   } else {
-    show(noUrl);
+    show(urlMissing);
     downloadBtn.disabled = true;
   }
 }
 
-// ── Get Google cookies from browser ──────────────────────────────────────────
+// ── Fetch Google cookies ──────────────────────────────────────────────────────
 async function fetchCookies() {
-  cookiesStatus.textContent = "Reading Google cookies...";
+  cookieText.textContent = "Reading Google cookies…";
   try {
     const raw = await chrome.cookies.getAll({ domain: ".google.com" });
     if (!raw || raw.length === 0) {
-      cookiesStatus.textContent = "No Google cookies found. Make sure you're logged into Google.";
+      cookieText.textContent = "No Google cookies — make sure you're logged into Google.";
+      cookieText.className = "info-text info-warn";
       return;
     }
-    // Format as the app expects: array of {name, value, domain, path}
-    cookiesJson = raw.map(c => ({
-      name: c.name, value: c.value, domain: c.domain, path: c.path
-    }));
-    cookiesStatus.textContent = `✓ ${raw.length} Google cookies ready`;
-    cookiesStatus.style.color = "#4ade80";
+    cookiesData = raw.map(c => ({ name: c.name, value: c.value, domain: c.domain, path: c.path }));
+    cookieText.textContent = `${raw.length} Google cookies ready`;
+    cookieText.className = "info-text info-ok";
   } catch (e) {
-    cookiesStatus.textContent = "Could not read cookies: " + e.message;
+    cookieText.textContent = "Could not read cookies: " + e.message;
+    cookieText.className = "info-text info-warn";
   }
 }
 
@@ -111,40 +159,52 @@ downloadBtn.addEventListener("click", async () => {
   const { apiKey } = await chrome.storage.local.get("apiKey");
 
   downloadBtn.disabled = true;
-  show(progressWrap);
-  progressBar.style.width = "10%";
-  progressText.textContent = "Sending to DriveLoad...";
+  dlLabel.textContent  = "Sending…";
+  show(progressSec);
+  progressFill.style.width = "15%";
+  progressLbl.textContent  = "Connecting to DriveLoad…";
 
   try {
     const res = await fetch(`${API_BASE}/api/v1/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
-      body: JSON.stringify({ url: currentUrl, cookies: cookiesJson })
+      body: JSON.stringify({ url: currentUrl, cookies: cookiesData })
     });
+
     const data = await res.json();
 
     if (!data.ok) {
-      progressText.textContent = data.message || "Error starting download";
-      progressBar.style.background = "#ef4444";
+      progressFill.style.width = "100%";
+      progressFill.style.background = "#ef4444";
+      progressLbl.textContent = data.message || "Something went wrong.";
+      dlLabel.textContent = "⬇ Download Video";
       downloadBtn.disabled = false;
       return;
     }
 
-    progressBar.style.width = "100%";
-    hide(progressWrap);
-    show(doneMsg);
+    progressFill.style.width = "100%";
+    setTimeout(() => {
+      hide(progressSec);
+      show(successMsg);
+    }, 600);
 
-    // Update cached plan info
-    if (data.plan) {
-      await chrome.storage.local.set({
-        userPlan: data.plan,
-        downloadsUsed: data.downloads_used || 0
-      });
-      renderPlan(data.plan, data.downloads_used || 0);
+    // Refresh cached user data
+    const statusRes = await fetch(`${API_BASE}/api/v1/status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-Key": apiKey },
+      body: JSON.stringify({})
+    });
+    if (statusRes.ok) {
+      const sd = await statusRes.json();
+      const userData = { plan: sd.plan || "free", downloadsUsed: sd.downloads_used || 0 };
+      await chrome.storage.local.set({ userData });
+      renderUser(userData);
     }
+
   } catch (e) {
-    progressText.textContent = "Network error. Is DriveLoad running?";
-    progressBar.style.background = "#ef4444";
+    progressFill.style.background = "#ef4444";
+    progressLbl.textContent = "Network error — is DriveLoad reachable?";
+    dlLabel.textContent = "⬇ Download Video";
     downloadBtn.disabled = false;
   }
 });
@@ -152,14 +212,3 @@ downloadBtn.addEventListener("click", async () => {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function show(el) { el.classList.remove("hidden"); }
 function hide(el) { el.classList.add("hidden"); }
-
-function renderPlan(plan, used) {
-  planBadge.textContent = (plan || "free").toUpperCase();
-  planBadge.className   = "badge badge-" + (plan === "pro" ? "pro" : "free");
-  if (plan !== "pro") {
-    const left = Math.max(0, 3 - (used || 0));
-    downloadsLeft.textContent = `${left} free download${left !== 1 ? "s" : ""} remaining`;
-  } else {
-    downloadsLeft.textContent = "Unlimited downloads";
-  }
-}
