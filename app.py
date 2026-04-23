@@ -509,6 +509,26 @@ def _worker(uid, queue):
 def landing():
     return render_template("landing.html")
 
+@app.route("/sitemap.xml")
+def sitemap():
+    pages = [
+        ("https://driveload.onrender.com/", "weekly", "1.0"),
+        ("https://driveload.onrender.com/pricing", "monthly", "0.8"),
+        ("https://driveload.onrender.com/register", "monthly", "0.9"),
+        ("https://driveload.onrender.com/login", "monthly", "0.5"),
+    ]
+    xml = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for loc, freq, priority in pages:
+        xml.append(f"  <url><loc>{loc}</loc><changefreq>{freq}</changefreq><priority>{priority}</priority></url>")
+    xml.append("</urlset>")
+    return "\n".join(xml), 200, {"Content-Type": "application/xml"}
+
+@app.route("/robots.txt")
+def robots():
+    body = "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: https://driveload.onrender.com/sitemap.xml\n"
+    return body, 200, {"Content-Type": "text/plain"}
+
 @app.route("/pricing")
 def pricing():
     return render_template("pricing.html",

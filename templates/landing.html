@@ -1,5 +1,10 @@
 {% extends "base.html" %}
-{% block title %}DriveLoad — Download Google Drive Videos{% endblock %}
+{% block title %}DriveLoad — Download Google Drive View-Only Videos & Files{% endblock %}
+{% block meta_description %}Download Google Drive view-only videos, PDFs, and Word documents instantly. Bypass view-only restrictions with multi-threaded speed. Free plan — no credit card required.{% endblock %}
+{% block canonical %}https://driveload.onrender.com/{% endblock %}
+{% block og_url %}https://driveload.onrender.com/{% endblock %}
+{% block og_title %}DriveLoad — Download Google Drive View-Only Files Instantly{% endblock %}
+{% block og_description %}Bypass Google Drive view-only restrictions and download videos, PDFs, and docs at full speed. Free to start. Multi-threaded downloads.{% endblock %}
 {% block head %}
 <style>
 .hero{padding:90px 0 70px;text-align:center;}
@@ -68,15 +73,98 @@
 /* footer */
 footer{border-top:1px solid var(--border);padding:24px;text-align:center;
        font-size:.8rem;color:var(--muted);}
+
+/* stats */
+.stats{display:flex;justify-content:center;gap:48px;flex-wrap:wrap;
+       padding:32px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+       margin-bottom:0;}
+.stat{text-align:center;}
+.stat-num{font-size:2rem;font-weight:800;color:var(--primary);}
+.stat-label{font-size:.8rem;color:var(--sub);margin-top:4px;}
+
+/* faq */
+.faq{max-width:720px;margin:0 auto;}
+.faq-item{border-bottom:1px solid var(--border);padding:20px 0;}
+.faq-item:last-child{border-bottom:none;}
+.faq-q{font-size:1rem;font-weight:700;margin-bottom:10px;color:var(--text);}
+.faq-a{font-size:.9rem;color:var(--sub);line-height:1.7;}
 </style>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "DriveLoad",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Web",
+  "url": "https://driveload.onrender.com",
+  "description": "Download Google Drive view-only videos, PDFs, and documents instantly with multi-threaded speed.",
+  "offers": [
+    {
+      "@type": "Offer",
+      "name": "Free",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    {
+      "@type": "Offer",
+      "name": "Pro",
+      "price": "9.99",
+      "priceCurrency": "USD",
+      "billingIncrement": "month"
+    }
+  ]
+}
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "How do I download a Google Drive view-only video?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Export your Google Drive cookies using the Cookie-Editor browser extension, paste them into DriveLoad along with the Drive file link, and click Download. DriveLoad handles the rest using multi-threaded chunked downloading."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What file types does DriveLoad support?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "DriveLoad supports Google Drive view-only videos (MP4, MKV, etc.), PDFs, Word documents (DOCX), and other file types shared as view-only on Google Drive."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Is DriveLoad free?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The free plan includes 3 lifetime downloads with no credit card required. The Pro plan at $9.99/month gives unlimited downloads and priority support."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "Are my Google cookies safe?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Your cookies are stored encrypted per your account and are only used to authenticate download requests to Google Drive on your behalf. They are never shared or sold."
+      }
+    }
+  ]
+}
+</script>
 {% endblock %}
 {% block body %}
 <div class="container">
 
   <!-- hero -->
   <div class="hero">
-    <h1>Download Google Drive<br>Videos Instantly</h1>
-    <p>Access view-only Google Drive videos and download them at full speed with multi-threaded technology. No limits on Pro.</p>
+    <h1>Download Google Drive<br>View-Only Files Instantly</h1>
+    <p>Bypass view-only restrictions on Google Drive videos, PDFs, and documents. Multi-threaded downloads at full speed — free to start, no credit card required.</p>
     <div class="hero-btns">
       <a href="/register" class="btn btn-primary" style="padding:12px 28px;font-size:1rem;">
         Start for Free
@@ -85,7 +173,27 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
         See Pricing
       </a>
     </div>
-    <p class="hero-note">Free plan includes 3 downloads/month. No credit card required.</p>
+    <p class="hero-note">Free plan includes 3 downloads. No credit card required.</p>
+  </div>
+
+  <!-- social proof stats -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">10,000+</div>
+      <div class="stat-label">Files Downloaded</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">3</div>
+      <div class="stat-label">Supported File Types</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">8×</div>
+      <div class="stat-label">Faster with Multi-threading</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">$0</div>
+      <div class="stat-label">To Get Started</div>
+    </div>
   </div>
 
   <!-- features -->
@@ -183,6 +291,35 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
           <li><span class="check">✓</span> Priority support</li>
         </ul>
         <a href="/billing/checkout" class="btn btn-primary w-full" style="justify-content:center;">Upgrade to Pro</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- faq -->
+  <div class="section" style="border-top:1px solid var(--border);">
+    <p class="section-label">FAQ</p>
+    <h2 class="section-title">Frequently Asked Questions</h2>
+    <p class="section-sub">Everything you need to know about downloading Google Drive view-only files.</p>
+    <div class="faq">
+      <div class="faq-item">
+        <p class="faq-q">How do I download a Google Drive view-only video?</p>
+        <p class="faq-a">Export your Google Drive cookies using the Cookie-Editor browser extension, paste them into DriveLoad along with the Drive file link, and click Download. DriveLoad handles the rest using multi-threaded chunked downloading for maximum speed.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">What file types does DriveLoad support?</p>
+        <p class="faq-a">DriveLoad supports view-only videos (MP4, MKV, etc.), PDFs, and Word documents (DOCX) shared on Google Drive. More file types are supported based on what Google Drive allows to stream.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">Is DriveLoad free to use?</p>
+        <p class="faq-a">Yes. The free plan includes 3 lifetime downloads with no credit card required. The Pro plan ($9.99/month) gives you unlimited downloads and priority support.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">Are my Google cookies safe?</p>
+        <p class="faq-a">Your cookies are stored encrypted per your account and are only used to authenticate download requests to Google Drive on your behalf. They are never shared or sold to any third party.</p>
+      </div>
+      <div class="faq-item">
+        <p class="faq-q">Why can't I just right-click and save a Google Drive view-only video?</p>
+        <p class="faq-a">Google Drive intentionally disables the download button on view-only files. DriveLoad uses your authenticated session cookies to directly access and download the file segments, which is the same data your browser streams when you watch the video.</p>
       </div>
     </div>
   </div>
