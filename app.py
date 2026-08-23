@@ -39,6 +39,7 @@ PAYPAL_SECRET          = os.getenv("PAYPAL_SECRET", "")
 PAYPAL_PLAN_ID         = os.getenv("PAYPAL_PLAN_ID", "")
 PAYPAL_API             = "https://api-m.paypal.com"
 DOWNLOAD_DIR           = Path(os.getenv("DOWNLOAD_DIR", str(Path.home() / "Downloads")))
+TEMP_DOWNLOAD_DIR      = Path(os.getenv("TEMP_DOWNLOAD_DIR", "/tmp/driveload"))
 FREE_LIMIT             = int(os.getenv("FREE_LIMIT", "3"))   # lifetime, not monthly
 
 db  = SQLAlchemy(app)
@@ -506,7 +507,7 @@ def _worker(uid, queue):
                 cookies = raw_cookies if isinstance(raw_cookies, list) else dict(raw_cookies)
 
                 gdoc_type = detect_gdoc_type(orig_url)
-                tmpdir = Path("/tmp/driveload") / str(uid)
+                tmpdir = TEMP_DOWNLOAD_DIR / str(uid)
                 tmpdir.mkdir(parents=True, exist_ok=True)
 
                 # 1. Google Workspace files — stream export directly
@@ -1135,33 +1136,33 @@ with app.app_context():
             conn.execute(text("ALTER TABLE user ADD COLUMN api_key VARCHAR(64)"))
         if "total_downloads" not in existing:
             conn.execute(text("ALTER TABLE user ADD COLUMN total_downloads INTEGER DEFAULT 0"))
-        # SQLite: recreate table with all columns (allows NULL password_hash, adds is_admin)
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS user_new (
-                id INTEGER PRIMARY KEY,
-                name VARCHAR(120) NOT NULL,
-                email VARCHAR(255) UNIQUE NOT NULL,
-                password_hash VARCHAR(255),
-                google_id VARCHAR(120) UNIQUE,
-                api_key VARCHAR(64) UNIQUE,
-                plan VARCHAR(20) DEFAULT 'free',
-                stripe_customer_id VARCHAR(120),
-                stripe_subscription_id VARCHAR(120),
-                cookies_json TEXT DEFAULT '{}',
-                total_downloads INTEGER DEFAULT 0,
-                is_admin BOOLEAN DEFAULT 0,
-                created_at DATETIME
-            )
-        """))
-        # Copy existing data; is_admin defaults to 0
-        conn.execute(text("""
-            INSERT OR IGNORE INTO user_new
-            SELECT id, name, email, password_hash, google_id, api_key, plan,
-                   stripe_customer_id, stripe_subscription_id, cookies_json,
-                   total_downloads, 0, created_at FROM user
-        """))
-        conn.execute(text("DROP TABLE user"))
-        conn.execute(text("ALTER TABLE user_new RENAME TO user"))
+        if db.engine.dialect.name == "sqlite":
+            # SQLite cannot alter several constraints in place, so rebuild the table.
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_new (
+                    id INTEGER PRIMARY KEY,
+                    name VARCHAR(120) NOT NULL,
+                    email VARCHAR(255) UNIQUE NOT NULL,
+                    password_hash VARCHAR(255),
+                    google_id VARCHAR(120) UNIQUE,
+                    api_key VARCHAR(64) UNIQUE,
+                    plan VARCHAR(20) DEFAULT 'free',
+                    stripe_customer_id VARCHAR(120),
+                    stripe_subscription_id VARCHAR(120),
+                    cookies_json TEXT DEFAULT '{}',
+                    total_downloads INTEGER DEFAULT 0,
+                    is_admin BOOLEAN DEFAULT 0,
+                    created_at DATETIME
+                )
+            """))
+            conn.execute(text("""
+                INSERT OR IGNORE INTO user_new
+                SELECT id, name, email, password_hash, google_id, api_key, plan,
+                       stripe_customer_id, stripe_subscription_id, cookies_json,
+                       total_downloads, 0, created_at FROM user
+            """))
+            conn.execute(text("DROP TABLE user"))
+            conn.execute(text("ALTER TABLE user_new RENAME TO user"))
         conn.commit()
     # Always ensure the owner account has admin + pro
     owner = User.query.filter_by(email="pediatricahmed@gmail.com").first()
