@@ -1,4 +1,4 @@
-import json, os, re, secrets, threading, queue as q_mod
+import json, math, os, re, secrets, shutil, threading, queue as q_mod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -376,63 +376,118 @@ def download_gdoc_export(uid, file_id, gdoc_type, cookies, out_path):
         cookies.update(session.cookies.get_dict())
     return received / 1048576
 
-def _dl_chunk(url, cookies, start, end, pnum, tmpdir):
-    try:
-        r = http.get(url, headers={"Range": f"bytes={start}-{end}"},
-                     cookies=_cookies_dict(cookies), stream=True, timeout=60)
-        if r.status_code in (200, 206):
-            path = os.path.join(tmpdir, f"part_{pnum:04d}.tmp")
-            with open(path, "wb") as f:
-                for chunk in r.iter_content(8192):
-                    if chunk:
-                        f.write(chunk)
-            return pnum, path
-    except Exception:
-        pass
-    return pnum, None
+def _stream_response(uid, response, out_path, total=0):
+    """Write one HTTP response to disk while reporting useful progress."""
+    response.raise_for_status()
+    received = 0
+    with response, open(out_path, "wb") as f:
+        for chunk in response.iter_content(256 * 1024):
+            if not chunk:
+                continue
+            f.write(chunk)
+            received += len(chunk)
+            if total:
+                pct = min(received / total * 100, 99)
+                _set_status(uid, f"Downloading… {pct:.1f}%  "
+                    f"({received/1048576:.1f} / {total/1048576:.1f} MB)", pct)
+    return received
 
-def download_file(uid, dl_url, cookies, out_path, threads=8, chunk_mb=6):
-    """Multi-threaded chunked downloader. Falls back to streaming for small files."""
-    cd   = _cookies_dict(cookies)
-    head = http.head(dl_url, cookies=cd, allow_redirects=True, timeout=30)
-    size = int(head.headers.get("content-length", 0))
 
-    if not size:
-        # Streaming fallback (no content-length header)
-        _set_status(uid, "Downloading…", 5)
-        with http.get(dl_url, cookies=cd, stream=True, timeout=120) as r:
-            with open(out_path, "wb") as f:
-                for chunk in r.iter_content(65536):
-                    if chunk:
-                        f.write(chunk)
-        return os.path.getsize(out_path) / 1048576
+def _dl_chunk(url, cookies, start, end, pnum, tmpdir, retries=3):
+    """Download exactly one byte range; never accept a full-file response."""
+    expected = end - start + 1
+    headers = dict(GOOGLE_HEADERS)
+    headers["Range"] = f"bytes={start}-{end}"
+    path = os.path.join(tmpdir, f"part_{pnum:04d}.tmp")
 
+    for _ in range(retries):
+        try:
+            with http.get(url, headers=headers, cookies=_cookies_dict(cookies),
+                          stream=True, allow_redirects=True, timeout=(20, 120)) as r:
+                content_range = r.headers.get("Content-Range", "")
+                if r.status_code != 206 or not content_range.startswith(f"bytes {start}-"):
+                    continue
+                written = 0
+                with open(path, "wb") as f:
+                    for chunk in r.iter_content(256 * 1024):
+                        if chunk:
+                            f.write(chunk)
+                            written += len(chunk)
+                if written == expected:
+                    return pnum, path, written
+        except http.RequestException:
+            pass
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+    return pnum, None, 0
+
+
+def download_file(uid, dl_url, cookies, out_path, threads=8, chunk_mb=8):
+    """Download with validated ranges, falling back safely to one stream."""
+    cd = _cookies_dict(cookies)
+    probe_headers = dict(GOOGLE_HEADERS)
+    probe_headers["Range"] = "bytes=0-0"
+    probe = http.get(dl_url, headers=probe_headers, cookies=cd, stream=True,
+                     allow_redirects=True, timeout=(20, 120))
+
+    # A 200 response means the origin ignored Range. Reuse that response instead
+    # of accidentally downloading the complete file once for every chunk.
+    if probe.status_code != 206:
+        total = int(probe.headers.get("Content-Length", 0))
+        _set_status(uid, "Server does not support parallel ranges; downloading safely…", 1)
+        received = _stream_response(uid, probe, out_path, total)
+        return received / 1048576
+
+    match = re.match(r"bytes 0-0/(\d+)$", probe.headers.get("Content-Range", ""))
+    probe.close()
+    if not match:
+        raise RuntimeError("Google returned an invalid byte-range response")
+
+    size = int(match.group(1))
     _set_status(uid, f"Size: {size/1048576:.1f} MB — downloading…", 0)
-    chunk  = chunk_mb * 1048576
-    ranges = [(i, min(i + chunk - 1, size - 1), idx)
-              for idx, i in enumerate(range(0, size, chunk))]
+
+    # Keep at most four jobs per worker. Thousands of tiny futures add overhead
+    # and can trigger throttling without improving throughput.
+    min_chunk = chunk_mb * 1048576
+    chunk_size = max(min_chunk, math.ceil(size / max(threads * 4, 1)))
+    ranges = [(start, min(start + chunk_size - 1, size - 1), idx)
+              for idx, start in enumerate(range(0, size, chunk_size))]
     tmpdir = out_path + ".parts"
-    os.makedirs(tmpdir, exist_ok=True)
+    shutil.rmtree(tmpdir, ignore_errors=True)
+    os.makedirs(tmpdir)
     done, received = {}, 0
-    with ThreadPoolExecutor(max_workers=threads) as ex:
-        futs = {ex.submit(_dl_chunk, dl_url, cd, s, e, pn, tmpdir): pn
-                for s, e, pn in ranges}
-        for f in as_completed(futs):
-            pn, path = f.result()
-            if path:
-                done[pn] = path
-                received += os.path.getsize(path)
-                pct = received / size * 100
+
+    try:
+        with ThreadPoolExecutor(max_workers=min(threads, len(ranges))) as ex:
+            futures = {
+                ex.submit(_dl_chunk, dl_url, cd, start, end, part, tmpdir): part
+                for start, end, part in ranges
+            }
+            for future in as_completed(futures):
+                part, path, written = future.result()
+                if not path:
+                    raise RuntimeError(f"Download failed at part {part + 1}; please retry")
+                done[part] = path
+                received += written
+                pct = min(received / size * 100, 99)
                 _set_status(uid, f"Downloading… {pct:.1f}%  "
                     f"({received/1048576:.1f} / {size/1048576:.1f} MB)", pct)
-    _set_status(uid, "Merging…", 99)
-    with open(out_path, "wb") as out:
-        for pn in sorted(done):
-            with open(done[pn], "rb") as f:
-                out.write(f.read())
-            os.remove(done[pn])
-    os.rmdir(tmpdir)
-    return size / 1048576
+
+        if received != size or len(done) != len(ranges):
+            raise RuntimeError("Download incomplete; no file was produced")
+
+        _set_status(uid, "Merging…", 99)
+        with open(out_path, "wb") as out:
+            for part in range(len(ranges)):
+                with open(done[part], "rb") as source:
+                    shutil.copyfileobj(source, out, length=1024 * 1024)
+        if os.path.getsize(out_path) != size:
+            raise RuntimeError("Merged file size does not match the source")
+        return size / 1048576
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 def _worker(uid, queue):
     total = len(queue)
