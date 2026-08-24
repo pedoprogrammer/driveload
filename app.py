@@ -568,10 +568,10 @@ def landing():
 @app.route("/sitemap.xml")
 def sitemap():
     pages = [
-        ("https://driveload.onrender.com/", "weekly", "1.0"),
-        ("https://driveload.onrender.com/pricing", "monthly", "0.8"),
-        ("https://driveload.onrender.com/register", "monthly", "0.9"),
-        ("https://driveload.onrender.com/login", "monthly", "0.5"),
+        (f"{APP_URL}/", "weekly", "1.0"),
+        (f"{APP_URL}/pricing", "monthly", "0.8"),
+        (f"{APP_URL}/register", "monthly", "0.9"),
+        (f"{APP_URL}/login", "monthly", "0.5"),
     ]
     xml = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
@@ -582,7 +582,7 @@ def sitemap():
 
 @app.route("/robots.txt")
 def robots():
-    body = "User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: https://driveload.onrender.com/sitemap.xml\n"
+    body = f"User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: {APP_URL}/sitemap.xml\n"
     return body, 200, {"Content-Type": "text/plain"}
 
 @app.route("/pricing")

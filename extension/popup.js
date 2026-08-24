@@ -1,4 +1,4 @@
-const API_BASE = "https://driveload.onrender.com";
+const API_BASE = "https://driveload.duckdns.org";
 
 // ── DOM refs ──────────────────────────────────────────────────────────────────
 const setupView     = document.getElementById("setup-view");

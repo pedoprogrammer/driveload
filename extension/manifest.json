@@ -7,7 +7,7 @@
   "host_permissions": [
     "https://drive.google.com/*",
     "https://*.google.com/*",
-    "https://driveload.onrender.com/*"
+    "https://driveload.duckdns.org/*"
   ],
   "web_accessible_resources": [
     {
