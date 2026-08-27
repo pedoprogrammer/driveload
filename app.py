@@ -211,7 +211,10 @@ def get_video_info(file_id, cookies):
     url = (f"https://drive.google.com/u/0/get_video_info"
            f"?docid={file_id}&drive_originator_app=303")
     cd  = _cookies_dict(cookies)
-    r   = http.get(url, cookies=cd, timeout=30)
+    # Google binds videoplayback signatures to the requesting user-agent.
+    # The exact same headers must be used later by download_file/_dl_chunk.
+    r   = http.get(url, headers=GOOGLE_HEADERS, cookies=cd, timeout=30)
+    r.raise_for_status()
     video_url = title = None
     for part in r.text.split("&"):
         if part.startswith("title=") and not title:

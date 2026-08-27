@@ -32,6 +32,20 @@ class FakeResponse:
 
 
 class DownloadFileTests(unittest.TestCase):
+    def test_video_info_uses_download_user_agent(self):
+        response = FakeResponse()
+        response.text = (
+            "title=Training+Video&fmt_stream_map=37|"
+            "https%3A%2F%2Fvideo.example.test%2Fvideoplayback"
+        )
+
+        with patch.object(app.http, "get", return_value=response) as get:
+            video_url, title = app.get_video_info("file-id", {})
+
+        self.assertEqual(video_url, "https://video.example.test/videoplayback")
+        self.assertEqual(title, "Training+Video")
+        self.assertEqual(get.call_args.kwargs["headers"], app.GOOGLE_HEADERS)
+
     def test_worker_does_not_report_success_without_a_file(self):
         user_id = -999
         app._states.pop(user_id, None)
