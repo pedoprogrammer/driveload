@@ -32,6 +32,18 @@ class FakeResponse:
 
 
 class DownloadFileTests(unittest.TestCase):
+    def test_worker_does_not_report_success_without_a_file(self):
+        user_id = -999
+        app._states.pop(user_id, None)
+
+        with patch.object(app, "_broadcast") as broadcast:
+            app._worker(user_id, [{"id": "missing", "url": ""}])
+
+        result = broadcast.call_args_list[-1].args[1]
+        self.assertTrue(result["done"])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["ready_count"], 0)
+
     def test_stream_removes_file_only_after_completion(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "video.mp4")

@@ -229,14 +229,18 @@ function connectSSE(){
     if(d.done){
       queue=[]; renderQueue();
       document.getElementById('dl-btn').disabled=false;
-      showSaveButton();
+      if(d.ok && d.ready_count > 0){
+        showSaveButton(d.ready_count);
+      } else {
+        showToast(d.status || 'Download failed — no file was created.', false);
+      }
     }
   };
   es.onerror = () => setTimeout(connectSSE, 3000);
 }
 
 // ── save button (appears after server finishes downloading) ───────────────────
-function showSaveButton(){
+function showSaveButton(count=1){
   let btn = document.getElementById('save-btn');
   if(!btn){
     btn = document.createElement('button');
@@ -246,7 +250,7 @@ function showSaveButton(){
     document.getElementById('dl-btn').insertAdjacentElement('afterend', btn);
   }
   btn.disabled = false;
-  btn.textContent = 'Save File to Device';
+  btn.textContent = count > 1 ? `Save File (${count} ready)` : 'Save File to Device';
   btn.onclick = saveNextFile;
   showToast('File ready — click "Save File to Device"!', true);
 }
@@ -254,6 +258,15 @@ function showSaveButton(){
 async function saveNextFile(){
   const btn = document.getElementById('save-btn');
   btn.disabled = true;
+  btn.textContent = 'Checking file…';
+  const readyResponse = await fetch('/api/download/count').catch(()=>null);
+  const ready = readyResponse && readyResponse.ok
+    ? await readyResponse.json().catch(()=>null) : null;
+  if(!ready || ready.count < 1){
+    btn.remove();
+    showToast('No video file is ready. Run the download again and wait for completion.', false);
+    return;
+  }
   btn.textContent = 'Starting download…';
   const link = document.createElement('a');
   link.href = '/api/download/file?t=' + Date.now();

@@ -492,6 +492,8 @@ def download_file(uid, dl_url, cookies, out_path, threads=8, chunk_mb=8):
 
 def _worker(uid, queue):
     total = len(queue)
+    completed = 0
+    errors = []
     for idx, item in enumerate(queue):
         file_id  = item["id"]
         orig_url = item.get("url", "")
@@ -535,7 +537,9 @@ def _worker(uid, queue):
                         dl_url, filename, _ = get_direct_download(file_id, cookies)
 
                     if not dl_url:
-                        _set_status(uid, f"[{idx+1}/{total}] Could not get download URL — skipped")
+                        message = f"[{idx+1}/{total}] Could not get a downloadable file URL"
+                        errors.append(message)
+                        _set_status(uid, message)
                         continue
 
                     filename = re.sub(r'[\\/*?:"<>|]', "_", filename or file_id)
@@ -551,13 +555,25 @@ def _worker(uid, queue):
 
                 st = _get_state(uid)
                 st.setdefault("ready_files", []).append({"filename": filename, "path": out})
+                completed += 1
                 _set_status(uid, f"[{idx+1}/{total}] Done: {filename}", 100)
         except Exception as e:
-            _set_status(uid, f"[{idx+1}/{total}] Error: {e}")
+            message = f"[{idx+1}/{total}] Error: {e}"
+            errors.append(message)
+            app.logger.exception("Download failed for user %s, file %s", uid, file_id)
+            _set_status(uid, message)
     st = _get_state(uid)
     st["busy"] = False
-    _broadcast(uid, {"status": f"All {total} download(s) complete!",
-                     "progress": 100, "done": True})
+    ready_count = len(st.get("ready_files", []))
+    if completed:
+        status = f"{completed} file(s) ready to save"
+    else:
+        status = errors[-1] if errors else "Download failed: no file was created"
+    st["status"] = status
+    st["progress"] = 100 if completed else 0
+    _broadcast(uid, {"status": status, "progress": st["progress"],
+                     "done": True, "ok": completed > 0,
+                     "ready_count": ready_count})
 
 
 # ── public routes ─────────────────────────────────────────────────────────────
@@ -930,6 +946,7 @@ def api_v1_status():
     st = _get_state(user.id)
     return jsonify(ok=True, busy=st["busy"],
                    status=st["status"], progress=st["progress"],
+                   ready_count=len(st.get("ready_files", [])),
                    plan=user.plan,
                    downloads_used=user.total_downloads)
 
