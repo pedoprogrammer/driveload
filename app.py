@@ -834,12 +834,12 @@ def api_download_file():
     st  = _get_state(uid)
     files = st.get("ready_files", [])
     if not files:
-        return jsonify(ok=False, message="No file ready"), 404
+        return Response(status=204)
     item = files.pop(0)
     path = item["path"]
     name = item["filename"]
     if not os.path.exists(path):
-        return jsonify(ok=False, message="File not found"), 404
+        return Response(status=204)
 
     ext  = os.path.splitext(name)[1].lower()
     mime = {
