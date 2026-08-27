@@ -2,14 +2,14 @@ import json, math, os, re, secrets, shutil, threading, queue as q_mod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import unquote, urlparse, parse_qs
+from urllib.parse import quote, unquote, urlparse, parse_qs
 
 import requests as http
 import stripe
 from authlib.integrations.flask_client import OAuth
 from dotenv import load_dotenv
-from flask import (Flask, Response, after_this_request, flash, jsonify, redirect,
-                   render_template, request, send_file, stream_with_context, url_for)
+from flask import (Flask, Response, flash, jsonify, redirect, render_template,
+                   request, stream_with_context, url_for)
 from flask_cors import CORS
 from flask_login import (LoginManager, UserMixin, current_user,
                          login_required, login_user, logout_user)
@@ -825,14 +825,6 @@ def api_download_file():
     if not os.path.exists(path):
         return jsonify(ok=False, message="File not found"), 404
 
-    @after_this_request
-    def _cleanup(response):
-        try:
-            os.remove(path)
-        except Exception:
-            pass
-        return response
-
     ext  = os.path.splitext(name)[1].lower()
     mime = {
         ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
@@ -848,7 +840,30 @@ def api_download_file():
         ".zip": "application/zip", ".mp3": "audio/mpeg",
     }.get(ext, "application/octet-stream")
 
-    return send_file(path, as_attachment=True, download_name=name, mimetype=mime)
+    size = os.path.getsize(path)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+        "Content-Length": str(size),
+        "Cache-Control": "no-store",
+    }
+    return Response(stream_with_context(_stream_then_remove(path)),
+                    mimetype=mime, headers=headers)
+
+
+def _stream_then_remove(path, chunk_size=1024 * 1024):
+    """Yield a completed download and remove it only after streaming stops."""
+    try:
+        with open(path, "rb") as source:
+            while True:
+                chunk = source.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+    finally:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 
 @app.route("/api/download/count")
 @login_required

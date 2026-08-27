@@ -32,6 +32,18 @@ class FakeResponse:
 
 
 class DownloadFileTests(unittest.TestCase):
+    def test_stream_removes_file_only_after_completion(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "video.mp4")
+            with open(path, "wb") as handle:
+                handle.write(b"video-data")
+
+            stream = app._stream_then_remove(path, chunk_size=5)
+            self.assertEqual(next(stream), b"video")
+            self.assertTrue(os.path.exists(path))
+            self.assertEqual(b"".join(stream), b"-data")
+            self.assertFalse(os.path.exists(path))
+
     def test_range_ignored_streams_response_once(self):
         body = b"complete video"
         response = FakeResponse(body, headers={"Content-Length": str(len(body))})

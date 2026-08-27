@@ -255,13 +255,12 @@ async function saveNextFile(){
   const btn = document.getElementById('save-btn');
   btn.disabled = true;
   btn.textContent = 'Starting download…';
-  // Use a hidden iframe: Content-Disposition:attachment triggers the browser
-  // save dialog without requiring a user-gesture token on the a.click() call
-  const iframe = document.createElement('iframe');
-  iframe.style.display = 'none';
-  iframe.src = '/api/download/file';
-  document.body.appendChild(iframe);
-  setTimeout(() => { try{ iframe.remove(); }catch(e){} }, 120000);
+  const link = document.createElement('a');
+  link.href = '/api/download/file?t=' + Date.now();
+  link.download = '';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
   showToast('Download started — check your Downloads folder!', true);
   // Wait briefly then check how many files remain
   await new Promise(r => setTimeout(r, 2000));
@@ -271,8 +270,8 @@ async function saveNextFile(){
     btn.disabled = false;
     btn.textContent = `Save Next File (${data.count} remaining)`;
   } else {
-    btn.remove();
-    setTimeout(()=>location.reload(), 2000);
+    btn.textContent = 'File sent to browser';
+    setTimeout(()=>btn.remove(), 5000);
   }
 }
 
