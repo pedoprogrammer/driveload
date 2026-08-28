@@ -208,22 +208,65 @@ def detect_gdoc_type(url):
 
 def get_video_info(file_id, cookies):
     """Try Drive's video streaming API — returns (stream_url, title) or (None, None)."""
-    url = (f"https://drive.google.com/u/0/get_video_info"
-           f"?docid={file_id}&drive_originator_app=303")
     cd  = _cookies_dict(cookies)
-    # Google binds videoplayback signatures to the requesting user-agent.
-    # The exact same headers must be used later by download_file/_dl_chunk.
-    r   = http.get(url, headers=GOOGLE_HEADERS, cookies=cd, timeout=30)
-    r.raise_for_status()
-    video_url = title = None
-    for part in r.text.split("&"):
-        if part.startswith("title=") and not title:
-            title = unquote(part.split("=", 1)[1])
-        elif "videoplayback" in part and not video_url:
-            video_url = unquote(part).split("|")[-1]
-        if video_url and title:
-            break
-    return video_url, title
+    endpoints = [f"https://drive.google.com/u/{index}/get_video_info"
+                 for index in range(5)]
+    endpoints.append("https://drive.google.com/get_video_info")
+
+    last_title = None
+    for endpoint in endpoints:
+        try:
+            r = http.get(endpoint,
+                         params={"docid": file_id, "drive_originator_app": "303"},
+                         headers=GOOGLE_HEADERS, cookies=cd, timeout=30)
+            if r.status_code != 200:
+                continue
+            candidates, title = _parse_video_info(r.text)
+            last_title = title or last_title
+            for candidate in candidates:
+                # Signed Drive URLs are bound to the user-agent that requested them.
+                headers = dict(GOOGLE_HEADERS)
+                headers["Range"] = "bytes=0-0"
+                probe = http.get(candidate, headers=headers, cookies=cd,
+                                 stream=True, allow_redirects=True,
+                                 timeout=(20, 30))
+                valid = probe.status_code in (200, 206)
+                probe.close()
+                if valid:
+                    return candidate, last_title
+        except http.RequestException:
+            continue
+    return None, last_title
+
+
+def _parse_video_info(payload):
+    """Extract stream URLs from both legacy and current Drive metadata."""
+    params = parse_qs(payload)
+    title = params.get("title", [None])[0]
+    candidates = []
+
+    for key in ("fmt_stream_map", "url_encoded_fmt_stream_map", "adaptive_fmts"):
+        for stream_map in params.get(key, []):
+            for entry in stream_map.split(","):
+                candidate = entry.rsplit("|", 1)[-1]
+                if "url=" in candidate and "videoplayback" not in candidate:
+                    candidate = parse_qs(candidate).get("url", [""])[0]
+                candidate = unquote(candidate)
+                if "videoplayback" in candidate and candidate not in candidates:
+                    candidates.append(candidate)
+
+    for raw_player in params.get("player_response", []):
+        try:
+            player = json.loads(raw_player)
+            streaming = player.get("streamingData", {})
+            formats = streaming.get("formats", []) + streaming.get("adaptiveFormats", [])
+            for item in formats:
+                candidate = item.get("url")
+                if candidate and candidate not in candidates:
+                    candidates.append(candidate)
+        except (TypeError, ValueError):
+            pass
+    return candidates, title
 
 def get_direct_download(file_id, cookies):
     """

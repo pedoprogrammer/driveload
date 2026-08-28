@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -33,18 +34,30 @@ class FakeResponse:
 
 class DownloadFileTests(unittest.TestCase):
     def test_video_info_uses_download_user_agent(self):
-        response = FakeResponse()
-        response.text = (
+        metadata = FakeResponse()
+        metadata.text = (
             "title=Training+Video&fmt_stream_map=37|"
             "https%3A%2F%2Fvideo.example.test%2Fvideoplayback"
         )
+        probe = FakeResponse(status=206)
 
-        with patch.object(app.http, "get", return_value=response) as get:
+        with patch.object(app.http, "get", side_effect=[metadata, probe]) as get:
             video_url, title = app.get_video_info("file-id", {})
 
         self.assertEqual(video_url, "https://video.example.test/videoplayback")
-        self.assertEqual(title, "Training+Video")
-        self.assertEqual(get.call_args.kwargs["headers"], app.GOOGLE_HEADERS)
+        self.assertEqual(title, "Training Video")
+        self.assertEqual(get.call_args_list[0].kwargs["headers"], app.GOOGLE_HEADERS)
+        self.assertEqual(get.call_args_list[1].kwargs["headers"]["Range"], "bytes=0-0")
+
+    def test_video_info_parser_supports_player_response(self):
+        player = json.dumps({"streamingData": {"formats": [
+            {"url": "https://video.example.test/videoplayback?id=1"}
+        ]}})
+        candidates, _ = app._parse_video_info(
+            "player_response=" + app.quote(player)
+        )
+        self.assertEqual(candidates,
+                         ["https://video.example.test/videoplayback?id=1"])
 
     def test_worker_does_not_report_success_without_a_file(self):
         user_id = -999

@@ -16,5 +16,4 @@ RUN useradd --create-home --uid 10001 driveload \
 USER driveload
 
 EXPOSE 8080
-CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "8", "--timeout", "3600"]
-
+CMD ["gunicorn", "app:app", "--bind", "0.0.0.0:8080", "--workers", "1", "--threads", "16", "--timeout", "3600"]

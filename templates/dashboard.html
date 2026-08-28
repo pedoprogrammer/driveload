@@ -216,9 +216,17 @@ async function startDownload(){
 }
 
 // ── SSE ──────────────────────────────────────────────────────────────────────
+let eventSource = null;
+let eventRetry = null;
+
 function connectSSE(){
-  const es = new EventSource('/api/events');
-  es.onmessage = e => {
+  if(eventSource) eventSource.close();
+  eventSource = new EventSource('/api/events');
+  eventSource.onopen = () => {
+    clearTimeout(eventRetry);
+    eventRetry = null;
+  };
+  eventSource.onmessage = e => {
     const d = JSON.parse(e.data);
     if(d.status)   document.getElementById('status-text').textContent = d.status;
     if(d.progress !== undefined){
@@ -236,7 +244,11 @@ function connectSSE(){
       }
     }
   };
-  es.onerror = () => setTimeout(connectSSE, 3000);
+  eventSource.onerror = () => {
+    eventSource.close();
+    eventSource = null;
+    if(!eventRetry) eventRetry = setTimeout(connectSSE, 3000);
+  };
 }
 
 // ── save button (appears after server finishes downloading) ───────────────────
