@@ -101,9 +101,12 @@ async function detectTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab) return;
   currentTab = tab;
-  if (tab.url && tab.url.includes("google.com")) {
+  if (tab.url && /^https?:\/\//.test(tab.url)) {
     urlInput.value = tab.url;
   }
+  const isGoogle = Boolean(tab.url && /https:\/\/(drive|docs)\.google\.com\//.test(tab.url));
+  tabPdf.classList.toggle("hidden", !isGoogle);
+  if (!isGoogle) tabApi.click();
 }
 
 // ── Load Google cookies ───────────────────────────────────────────────────────
@@ -230,8 +233,8 @@ async function pollPDFStatus(tabId) {
 // ── API / Server download ─────────────────────────────────────────────────────
 downloadApiBtn.addEventListener("click", async () => {
   const url = urlInput.value.trim();
-  if (!url || !url.includes("google.com")) {
-    showError("Please enter a valid Google Drive URL above."); return;
+  if (!/^https?:\/\//.test(url)) {
+    showError("Please enter a valid public web URL above."); return;
   }
 
   const { apiKey } = await chrome.storage.local.get("apiKey");

@@ -33,6 +33,48 @@ class FakeResponse:
 
 
 class DownloadFileTests(unittest.TestCase):
+    def test_google_workspace_detection_is_host_specific(self):
+        self.assertTrue(app.is_google_workspace_url(
+            "https://drive.google.com/file/d/example/view"))
+        self.assertFalse(app.is_google_workspace_url(
+            "https://example.com/?next=drive.google.com"))
+
+    def test_public_media_validation_rejects_private_hosts(self):
+        address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                    ("127.0.0.1", 443))]
+        with patch.object(app.socket, "getaddrinfo", return_value=address):
+            with self.assertRaisesRegex(ValueError, "Private or local"):
+                app.validate_public_media_url("https://internal.example/video")
+
+    def test_public_media_download_returns_created_file(self):
+        class FakeDownloader:
+            def __init__(self, options):
+                self.options = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def extract_info(self, _url, download=True):
+                output = self.options["outtmpl"].replace(
+                    "%(title).180B", "sample").replace("%(id)s", "42").replace("%(ext)s", "mp4")
+                with open(output, "wb") as handle:
+                    handle.write(b"public-video")
+
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("93.184.216.34", 443))]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app, "YoutubeDL", FakeDownloader):
+            filename, path, size_mb = app.download_public_media(
+                1, "https://example.com/video", directory)
+
+        self.assertEqual(filename, "sample-42.mp4")
+        self.assertGreater(size_mb, 0)
+        self.assertTrue(path.endswith(filename))
+
     def test_video_info_uses_download_user_agent(self):
         metadata = FakeResponse()
         metadata.text = (

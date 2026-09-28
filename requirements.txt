@@ -9,3 +9,4 @@ gunicorn
 authlib
 flask-cors
 psycopg2-binary
+yt-dlp

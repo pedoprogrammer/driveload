@@ -196,7 +196,7 @@ function renderQueue(){
   const ul = document.getElementById('queue-list');
   ul.innerHTML = '';
   if(!queue.length){
-    ul.innerHTML='<li style="justify-content:center;color:var(--muted);">Queue is empty — add URLs above</li>';
+    ul.innerHTML='<li style="justify-content:center;color:var(--muted);">Queue is empty — add a Drive or public media URL above</li>';
     return;
   }
   queue.forEach((item,i)=>{

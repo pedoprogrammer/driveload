@@ -1,4 +1,4 @@
-import json, math, os, re, secrets, shutil, threading, queue as q_mod
+import ipaddress, json, math, os, re, secrets, shutil, socket, threading, queue as q_mod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +15,7 @@ from flask_login import (LoginManager, UserMixin, current_user,
                          login_required, login_user, logout_user)
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
+from yt_dlp import YoutubeDL
 
 load_dotenv()
 
@@ -197,6 +198,62 @@ def extract_file_id(text):
 
 # Keep old name as alias for compatibility
 extract_video_id = extract_file_id
+
+
+def is_google_workspace_url(url):
+    host = (urlparse(url).hostname or "").lower()
+    return host == "drive.google.com" or host == "docs.google.com"
+
+
+def validate_public_media_url(url):
+    """Reject non-web URLs and hosts resolving to local/private networks."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Enter a valid public HTTP or HTTPS URL")
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443,
+                                       type=socket.SOCK_STREAM)
+    except socket.gaierror as exc:
+        raise ValueError("The website hostname could not be resolved") from exc
+    for address in addresses:
+        if not ipaddress.ip_address(address[4][0]).is_global:
+            raise ValueError("Private or local network URLs are not allowed")
+
+
+def download_public_media(uid, url, output_dir):
+    """Download one public, non-DRM media item using yt-dlp."""
+    validate_public_media_url(url)
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress_hook(data):
+        if data.get("status") != "downloading":
+            return
+        downloaded = data.get("downloaded_bytes", 0)
+        total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
+        progress = min(downloaded / total * 100, 99) if total else 1
+        _set_status(uid, f"Downloading media... {progress:.1f}%", progress)
+
+    options = {
+        "format": "bv*+ba/b",
+        "merge_output_format": "mp4",
+        "noplaylist": True,
+        "restrictfilenames": True,
+        "outtmpl": str(output_dir / "%(title).180B-%(id)s.%(ext)s"),
+        "progress_hooks": [progress_hook],
+        "quiet": True,
+        "no_warnings": True,
+    }
+    before = set(output_dir.iterdir())
+    with YoutubeDL(options) as downloader:
+        downloader.extract_info(url, download=True)
+    created = [path for path in output_dir.iterdir()
+               if path not in before and path.is_file()
+               and not path.name.endswith((".part", ".ytdl"))]
+    if not created:
+        raise RuntimeError("The site did not provide a downloadable media file")
+    output = max(created, key=lambda path: path.stat().st_mtime)
+    return output.name, str(output), output.stat().st_size / 1048576
 
 def detect_gdoc_type(url):
     """Return (export_url, ext) for Google Workspace files, else (None, None)."""
@@ -554,9 +611,24 @@ def _worker(uid, queue):
                 raw_cookies = user.cookies
                 cookies = raw_cookies if isinstance(raw_cookies, list) else dict(raw_cookies)
 
-                gdoc_type = detect_gdoc_type(orig_url)
                 tmpdir = TEMP_DOWNLOAD_DIR / str(uid)
                 tmpdir.mkdir(parents=True, exist_ok=True)
+
+                if not is_google_workspace_url(orig_url):
+                    _set_status(uid, f"[{idx+1}/{total}] Extracting public media...", 0)
+                    filename, out, size_mb = download_public_media(uid, orig_url, tmpdir)
+                    dl = Download(user_id=uid, filename=filename,
+                                  video_id=orig_url, size_mb=round(size_mb, 1))
+                    db.session.add(dl)
+                    user.increment_downloads()
+                    db.session.commit()
+                    st = _get_state(uid)
+                    st.setdefault("ready_files", []).append({"filename": filename, "path": out})
+                    completed += 1
+                    _set_status(uid, f"[{idx+1}/{total}] Done: {filename}", 100)
+                    continue
+
+                gdoc_type = detect_gdoc_type(orig_url)
 
                 # 1. Google Workspace files — stream export directly
                 if gdoc_type:
@@ -835,11 +907,11 @@ def api_download_start():
     st  = _get_state(uid)
     if st["busy"]:
         return jsonify(ok=False, message="Already downloading"), 400
-    if not current_user.cookies:
-        return jsonify(ok=False, message="No cookies saved — paste your cookies first"), 400
     q = _get_session_queue()
     if not q:
         return jsonify(ok=False, message="Queue is empty"), 400
+    if any(is_google_workspace_url(item.get("url", "")) for item in q) and not current_user.cookies:
+        return jsonify(ok=False, message="Google Drive downloads require saved Google cookies"), 400
     if not current_user.can_download():
         return jsonify(ok=False,
             message=f"You've used all {FREE_LIMIT} free downloads. Upgrade to Pro for unlimited."), 403
