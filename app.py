@@ -224,7 +224,8 @@ def validate_public_media_url(url):
             raise ValueError("Private or local network URLs are not allowed")
 
 
-def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=None):
+def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=None,
+                          browser_cookies=None):
     """Download one public, non-DRM media item using yt-dlp."""
     validate_public_media_url(url)
     output_dir = Path(output_dir)
@@ -243,6 +244,25 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
         else:
             _set_status(uid, f"Downloading media... {progress:.1f}%", progress)
 
+    cookie_path = None
+    if browser_cookies:
+        cookie_path = output_dir / ".cookies.txt"
+        with open(cookie_path, "w", encoding="utf-8") as cookie_file:
+            cookie_file.write("# Netscape HTTP Cookie File\n")
+            for cookie in browser_cookies:
+                domain = str(cookie.get("domain", ""))
+                name = str(cookie.get("name", ""))
+                value = str(cookie.get("value", ""))
+                if (not domain.lstrip(".").endswith("youtube.com") or not name
+                        or any(char in name + value for char in "\r\n\t")):
+                    continue
+                include_subdomains = "TRUE" if domain.startswith(".") else "FALSE"
+                secure = "TRUE" if cookie.get("secure") else "FALSE"
+                expires = int(cookie.get("expirationDate") or 0)
+                cookie_file.write(
+                    f"{domain}\t{include_subdomains}\t{cookie.get('path', '/')}\t"
+                    f"{secure}\t{expires}\t{name}\t{value}\n")
+
     options = {
         "format": "bv*+ba/b",
         "merge_output_format": "mp4",
@@ -255,9 +275,15 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
     }
     if max_bytes:
         options["max_filesize"] = max_bytes
+    if cookie_path:
+        options["cookiefile"] = str(cookie_path)
     before = set(output_dir.iterdir())
-    with YoutubeDL(options) as downloader:
-        downloader.extract_info(url, download=True)
+    try:
+        with YoutubeDL(options) as downloader:
+            downloader.extract_info(url, download=True)
+    finally:
+        if cookie_path:
+            cookie_path.unlink(missing_ok=True)
     created = [path for path in output_dir.iterdir()
                if path not in before and path.is_file()
                and not path.name.endswith((".part", ".ytdl"))]
@@ -1038,7 +1064,7 @@ def _guest_status(job_id, status, progress=None, **updates):
         job.update(updates)
 
 
-def _guest_worker(job_id, url):
+def _guest_worker(job_id, url, cookies):
     output_dir = TEMP_DOWNLOAD_DIR / "guest" / job_id
     try:
         def update(status, progress):
@@ -1046,7 +1072,7 @@ def _guest_worker(job_id, url):
 
         filename, path, _size_mb = download_public_media(
             job_id, url, output_dir, status_callback=update,
-            max_bytes=GUEST_MAX_BYTES)
+            max_bytes=GUEST_MAX_BYTES, browser_cookies=cookies)
         _guest_status(job_id, "Ready to save", 100, ready=True,
                       filename=filename, path=path)
     except Exception as exc:
@@ -1059,6 +1085,7 @@ def _guest_worker(job_id, url):
 def api_guest_download():
     data = request.get_json(silent=True) or {}
     url = data.get("url", "").strip()
+    cookies = data.get("cookies") or []
     if not url:
         return jsonify(ok=False, message="A page URL is required"), 400
     if is_google_workspace_url(url):
@@ -1067,6 +1094,8 @@ def api_guest_download():
         validate_public_media_url(url)
     except ValueError as exc:
         return jsonify(ok=False, message=str(exc)), 400
+    if not isinstance(cookies, list) or len(cookies) > 200:
+        return jsonify(ok=False, message="Invalid browser cookie data"), 400
 
     client_ip = request.remote_addr or "unknown"
     now = time.time()
@@ -1084,7 +1113,7 @@ def api_guest_download():
             "ready": False, "error": False, "created": now,
         }
 
-    threading.Thread(target=_guest_worker, args=(job_id, url), daemon=True).start()
+    threading.Thread(target=_guest_worker, args=(job_id, url, cookies), daemon=True).start()
     return jsonify(ok=True, job_id=job_id)
 
 

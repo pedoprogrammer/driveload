@@ -21,10 +21,23 @@ button.addEventListener("click", async () => {
   if (!currentTab?.url) return;
   setBusy(true);
   try {
+    const cookies = currentTab.url.includes("youtube.com")
+      ? await chrome.cookies.getAll({url: currentTab.url})
+      : [];
     const response = await fetch(`${API_BASE}/api/v1/guest/download`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({url: currentTab.url})
+      body: JSON.stringify({
+        url: currentTab.url,
+        cookies: cookies.map(cookie => ({
+          name: cookie.name,
+          value: cookie.value,
+          domain: cookie.domain,
+          path: cookie.path,
+          secure: cookie.secure,
+          expirationDate: cookie.expirationDate
+        }))
+      })
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.message || "Could not start download");
