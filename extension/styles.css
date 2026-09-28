@@ -19,9 +19,10 @@ body {
 .header-left { display: flex; align-items: center; gap: 8px; }
 .logo-mark {
   width: 26px; height: 26px;
-  background: linear-gradient(135deg,#6366f1,#a78bfa);
+  background: #073b4c;
+  border: 1px solid #2dd4bf;
   border-radius: 7px; display: flex; align-items: center; justify-content: center;
-  font-weight: 800; font-size: 14px; color: #fff;
+  font-weight: 800; font-size: 17px; color: #f8fafc;
 }
 .logo-text { font-weight: 800; font-size: 15px; color: #e2e8f0; }
 
