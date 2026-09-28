@@ -1,4 +1,4 @@
-import ipaddress, json, math, os, re, secrets, shutil, socket, threading, queue as q_mod
+import ipaddress, json, math, os, re, secrets, shutil, socket, threading, time, queue as q_mod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -23,7 +23,7 @@ load_dotenv()
 app = Flask(__name__)
 # Force https in url_for() when running behind Render's proxy
 app.wsgi_app = __import__('werkzeug.middleware.proxy_fix', fromlist=['ProxyFix']).ProxyFix(
-    app.wsgi_app, x_proto=1, x_host=1
+    app.wsgi_app, x_for=1, x_proto=1, x_host=1
 )
 app.config.update(
     SECRET_KEY              = os.getenv("SECRET_KEY", "change-me"),
@@ -139,6 +139,10 @@ def load_user(uid):
 # ── per-user SSE state ────────────────────────────────────────────────────────
 _states: dict = {}
 _lock = threading.Lock()
+_guest_jobs: dict = {}
+_guest_attempts: dict = {}
+GUEST_LIMIT_PER_HOUR = 3
+GUEST_MAX_BYTES = 500 * 1024 * 1024
 
 def _get_state(uid):
     with _lock:
@@ -220,7 +224,7 @@ def validate_public_media_url(url):
             raise ValueError("Private or local network URLs are not allowed")
 
 
-def download_public_media(uid, url, output_dir):
+def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=None):
     """Download one public, non-DRM media item using yt-dlp."""
     validate_public_media_url(url)
     output_dir = Path(output_dir)
@@ -232,7 +236,12 @@ def download_public_media(uid, url, output_dir):
         downloaded = data.get("downloaded_bytes", 0)
         total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
         progress = min(downloaded / total * 100, 99) if total else 1
-        _set_status(uid, f"Downloading media... {progress:.1f}%", progress)
+        if max_bytes and downloaded > max_bytes:
+            raise RuntimeError("This video exceeds the 500 MB extension limit")
+        if status_callback:
+            status_callback(f"Downloading media... {progress:.1f}%", progress)
+        else:
+            _set_status(uid, f"Downloading media... {progress:.1f}%", progress)
 
     options = {
         "format": "bv*+ba/b",
@@ -244,6 +253,8 @@ def download_public_media(uid, url, output_dir):
         "quiet": True,
         "no_warnings": True,
     }
+    if max_bytes:
+        options["max_filesize"] = max_bytes
     before = set(output_dir.iterdir())
     with YoutubeDL(options) as downloader:
         downloader.extract_info(url, download=True)
@@ -1014,6 +1025,95 @@ def _set_session_queue(q):
     from flask import session
     session["queue"] = q
     session.modified = True
+
+
+def _guest_status(job_id, status, progress=None, **updates):
+    with _lock:
+        job = _guest_jobs.get(job_id)
+        if not job:
+            return
+        job["status"] = status
+        if progress is not None:
+            job["progress"] = round(progress, 1)
+        job.update(updates)
+
+
+def _guest_worker(job_id, url):
+    output_dir = TEMP_DOWNLOAD_DIR / "guest" / job_id
+    try:
+        def update(status, progress):
+            _guest_status(job_id, status, progress)
+
+        filename, path, _size_mb = download_public_media(
+            job_id, url, output_dir, status_callback=update,
+            max_bytes=GUEST_MAX_BYTES)
+        _guest_status(job_id, "Ready to save", 100, ready=True,
+                      filename=filename, path=path)
+    except Exception as exc:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        app.logger.warning("Guest media download failed: %s", exc)
+        _guest_status(job_id, str(exc), 0, error=True)
+
+
+@app.route("/api/v1/guest/download", methods=["POST"])
+def api_guest_download():
+    data = request.get_json(silent=True) or {}
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify(ok=False, message="A page URL is required"), 400
+    if is_google_workspace_url(url):
+        return jsonify(ok=False, message="Google Drive still requires the signed-in dashboard"), 400
+    try:
+        validate_public_media_url(url)
+    except ValueError as exc:
+        return jsonify(ok=False, message=str(exc)), 400
+
+    client_ip = request.remote_addr or "unknown"
+    now = time.time()
+    with _lock:
+        recent = [stamp for stamp in _guest_attempts.get(client_ip, [])
+                  if now - stamp < 3600]
+        if len(recent) >= GUEST_LIMIT_PER_HOUR:
+            return jsonify(ok=False,
+                           message="Extension limit reached: try again in one hour"), 429
+        recent.append(now)
+        _guest_attempts[client_ip] = recent
+        job_id = secrets.token_urlsafe(24)
+        _guest_jobs[job_id] = {
+            "status": "Reading this page...", "progress": 0,
+            "ready": False, "error": False, "created": now,
+        }
+
+    threading.Thread(target=_guest_worker, args=(job_id, url), daemon=True).start()
+    return jsonify(ok=True, job_id=job_id)
+
+
+@app.route("/api/v1/guest/status/<job_id>")
+def api_guest_status(job_id):
+    with _lock:
+        job = _guest_jobs.get(job_id)
+        if not job:
+            return jsonify(ok=False, message="Download job not found"), 404
+        return jsonify(ok=True, status=job["status"], progress=job["progress"],
+                       ready=job.get("ready", False), error=job.get("error", False),
+                       filename=job.get("filename"))
+
+
+@app.route("/api/v1/guest/file/<job_id>")
+def api_guest_file(job_id):
+    with _lock:
+        job = _guest_jobs.pop(job_id, None)
+    if not job or not job.get("ready") or not os.path.exists(job.get("path", "")):
+        return jsonify(ok=False, message="File is not ready"), 404
+    path = job["path"]
+    name = job["filename"]
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}",
+        "Content-Length": str(os.path.getsize(path)),
+        "Cache-Control": "no-store",
+    }
+    return Response(stream_with_context(_stream_then_remove(path)),
+                    mimetype="application/octet-stream", headers=headers)
 
 
 # ── Chrome Extension API (v1) ─────────────────────────────────────────────────

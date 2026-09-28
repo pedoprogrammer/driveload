@@ -2,21 +2,9 @@
   "manifest_version": 3,
   "name": "DriveLoad",
   "version": "2.1.0",
-  "description": "Save public videos and media from supported websites, plus Google Drive files you can access.",
-  "permissions": ["cookies", "activeTab", "storage", "tabs", "scripting"],
-  "host_permissions": [
-    "https://drive.google.com/*",
-    "https://*.google.com/*",
-    "http://*/*",
-    "https://*/*",
-    "https://driveload.duckdns.org/*"
-  ],
-  "web_accessible_resources": [
-    {
-      "resources": ["vendor/jspdf.min.js", "pdf_downloader.js"],
-      "matches": ["https://drive.google.com/*", "https://docs.google.com/*"]
-    }
-  ],
+  "description": "One-click downloads for public, non-DRM videos on supported websites.",
+  "permissions": ["activeTab", "tabs", "downloads"],
+  "host_permissions": ["https://driveload.duckdns.org/*"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {

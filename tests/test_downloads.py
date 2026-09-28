@@ -33,6 +33,31 @@ class FakeResponse:
 
 
 class DownloadFileTests(unittest.TestCase):
+    def test_guest_extension_starts_without_account_or_api_key(self):
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("93.184.216.34", 443))]
+        app._guest_attempts.clear()
+        app._guest_jobs.clear()
+        with app.app.test_client() as client, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app.threading, "Thread") as thread:
+            response = client.post("/api/v1/guest/download", json={
+                "url": "https://example.com/public-video"
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
+        thread.assert_called_once()
+
+    def test_guest_extension_rejects_google_drive(self):
+        with app.app.test_client() as client:
+            response = client.post("/api/v1/guest/download", json={
+                "url": "https://drive.google.com/file/d/example/view"
+            })
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("signed-in dashboard", response.get_json()["message"])
+
     def test_google_workspace_detection_is_host_specific(self):
         self.assertTrue(app.is_google_workspace_url(
             "https://drive.google.com/file/d/example/view"))
