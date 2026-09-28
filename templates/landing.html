@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}DriveLoad — Download Google Drive View-Only Videos & Files{% endblock %}
-{% block meta_description %}Download Google Drive view-only videos, PDFs, and Word documents instantly. Bypass view-only restrictions with multi-threaded speed. Free plan — no credit card required.{% endblock %}
+{% block title %}DriveLoad — Download Public Videos and Drive Files{% endblock %}
+{% block meta_description %}Save public, non-DRM videos from supported social and embedded-media pages, plus Google Drive files you are authorized to access.{% endblock %}
 {% block canonical %}https://driveload.duckdns.org/{% endblock %}
 {% block og_url %}https://driveload.duckdns.org/{% endblock %}
-{% block og_title %}DriveLoad — Download Google Drive View-Only Files Instantly{% endblock %}
-{% block og_description %}Bypass Google Drive view-only restrictions and download videos, PDFs, and docs at full speed. Free to start. Multi-threaded downloads.{% endblock %}
+{% block og_title %}DriveLoad — Public Video and Drive File Downloader{% endblock %}
+{% block og_description %}Save public videos from supported social and embedded-media pages, plus accessible Google Drive files.{% endblock %}
 {% block head %}
 <style>
 .hero{padding:90px 0 70px;text-align:center;}
@@ -98,7 +98,7 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
   "applicationCategory": "UtilitiesApplication",
   "operatingSystem": "Web",
   "url": "https://driveload.duckdns.org",
-  "description": "Download Google Drive view-only videos, PDFs, and documents instantly with multi-threaded speed.",
+  "description": "Save public non-DRM media from supported websites and Google Drive files you are authorized to access.",
   "offers": [
     {
       "@type": "Offer",
@@ -124,10 +124,10 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
   "mainEntity": [
     {
       "@type": "Question",
-      "name": "How do I download a Google Drive view-only video?",
+      "name": "Which public video sites does DriveLoad support?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Export your Google Drive cookies using the Cookie-Editor browser extension, paste them into DriveLoad along with the Drive file link, and click Download. DriveLoad handles the rest using multi-threaded chunked downloading."
+        "text": "DriveLoad supports many public social and embedded-media pages through its media extractor. Support depends on the website and excludes DRM-protected or access-restricted media."
       }
     },
     {
@@ -135,7 +135,7 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
       "name": "What file types does DriveLoad support?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "DriveLoad supports Google Drive view-only videos (MP4, MKV, etc.), PDFs, Word documents (DOCX), and other file types shared as view-only on Google Drive."
+        "text": "DriveLoad supports public videos from many websites and accessible Google Drive videos, PDFs, documents, presentations, spreadsheets, and images."
       }
     },
     {
@@ -151,7 +151,7 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
       "name": "Are my Google cookies safe?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Your cookies are stored encrypted per your account and are only used to authenticate download requests to Google Drive on your behalf. They are never shared or sold."
+        "text": "Google cookies are only needed for Drive files that require your authenticated access. You can clear saved cookies from the dashboard at any time."
       }
     }
   ]
@@ -163,8 +163,8 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
 
   <!-- hero -->
   <div class="hero">
-    <h1>Download Google Drive<br>View-Only Files Instantly</h1>
-    <p>Bypass view-only restrictions on Google Drive videos, PDFs, and documents. Multi-threaded downloads at full speed — free to start, no credit card required.</p>
+    <h1>Download Public Videos<br>and Drive Files</h1>
+    <p>Save public, non-DRM media from supported social and embedded-video pages, plus Google Drive files you are authorized to access.</p>
     <div class="hero-btns">
       <a href="/register" class="btn btn-primary" style="padding:12px 28px;font-size:1rem;">
         Start for Free
@@ -205,12 +205,12 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
       <div class="feature-card">
         <div class="feature-icon">⚡</div>
         <h3>Multi-threaded Downloads</h3>
-        <p>Up to 8 parallel threads download your video in chunks for maximum speed.</p>
+        <p>FFmpeg combines high-quality video and audio streams into one convenient file.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">📋</div>
         <h3>Download Queue</h3>
-        <p>Add multiple Drive URLs to a queue and download them all in one go.</p>
+        <p>Add supported social, embedded-media, or Drive URLs to one download queue.</p>
       </div>
       <div class="feature-card">
         <div class="feature-icon">🔑</div>
@@ -299,15 +299,15 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
   <div class="section" style="border-top:1px solid var(--border);">
     <p class="section-label">FAQ</p>
     <h2 class="section-title">Frequently Asked Questions</h2>
-    <p class="section-sub">Everything you need to know about downloading Google Drive view-only files.</p>
+    <p class="section-sub">What to expect when saving public media and accessible Drive files.</p>
     <div class="faq">
       <div class="faq-item">
-        <p class="faq-q">How do I download a Google Drive view-only video?</p>
-        <p class="faq-a">Export your Google Drive cookies using the Cookie-Editor browser extension, paste them into DriveLoad along with the Drive file link, and click Download. DriveLoad handles the rest using multi-threaded chunked downloading for maximum speed.</p>
+        <p class="faq-q">Which public video sites does DriveLoad support?</p>
+        <p class="faq-a">DriveLoad supports many public social and embedded-media pages. Availability depends on the website and excludes DRM-protected or access-restricted media.</p>
       </div>
       <div class="faq-item">
         <p class="faq-q">What file types does DriveLoad support?</p>
-        <p class="faq-a">DriveLoad supports view-only videos (MP4, MKV, etc.), PDFs, and Word documents (DOCX) shared on Google Drive. More file types are supported based on what Google Drive allows to stream.</p>
+        <p class="faq-a">DriveLoad supports public videos from many websites and accessible Google Drive videos, PDFs, Word documents, presentations, spreadsheets, and images.</p>
       </div>
       <div class="faq-item">
         <p class="faq-q">Is DriveLoad free to use?</p>
@@ -315,11 +315,11 @@ footer{border-top:1px solid var(--border);padding:24px;text-align:center;
       </div>
       <div class="faq-item">
         <p class="faq-q">Are my Google cookies safe?</p>
-        <p class="faq-a">Your cookies are stored encrypted per your account and are only used to authenticate download requests to Google Drive on your behalf. They are never shared or sold to any third party.</p>
+        <p class="faq-a">Google cookies are only needed for Drive files that require your authenticated access. You can clear saved cookies from the dashboard at any time.</p>
       </div>
       <div class="faq-item">
-        <p class="faq-q">Why can't I just right-click and save a Google Drive view-only video?</p>
-        <p class="faq-a">Google Drive intentionally disables the download button on view-only files. DriveLoad uses your authenticated session cookies to directly access and download the file segments, which is the same data your browser streams when you watch the video.</p>
+        <p class="faq-q">Can DriveLoad bypass DRM or private access controls?</p>
+        <p class="faq-a">No. DriveLoad is for public, non-DRM media and files you are authorized to access. It does not bypass DRM, paywalls, or account permissions.</p>
       </div>
     </div>
   </div>
