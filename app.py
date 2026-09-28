@@ -264,7 +264,7 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
                     f"{secure}\t{expires}\t{name}\t{value}\n")
 
     options = {
-        "format": "bv*+ba/b",
+        "format": "b[ext=mp4]/b/bv*+ba",
         "merge_output_format": "mp4",
         "noplaylist": True,
         "restrictfilenames": True,
@@ -273,6 +273,13 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
         "quiet": True,
         "no_warnings": True,
     }
+    hostname = (urlparse(url).hostname or "").lower()
+    if hostname == "youtu.be" or hostname.endswith(".youtube.com"):
+        # YouTube increasingly hides ordinary HTTPS formats behind PO tokens.
+        # web_safari can still expose a combined HLS stream for browser sessions.
+        options["extractor_args"] = {
+            "youtube": {"player_client": ["default", "web_safari"]},
+        }
     if max_bytes:
         options["max_filesize"] = max_bytes
     if cookie_path:

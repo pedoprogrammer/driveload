@@ -100,6 +100,39 @@ class DownloadFileTests(unittest.TestCase):
         self.assertGreater(size_mb, 0)
         self.assertTrue(path.endswith(filename))
 
+    def test_youtube_download_uses_combined_stream_and_safari_fallback(self):
+        captured = {}
+
+        class FakeDownloader:
+            def __init__(self, options):
+                captured.update(options)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def extract_info(self, _url, download=True):
+                output = captured["outtmpl"].replace(
+                    "%(title).180B", "sample").replace("%(id)s", "42").replace(
+                        "%(ext)s", "mp4")
+                with open(output, "wb") as handle:
+                    handle.write(b"public-video")
+
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("142.250.186.110", 443))]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app, "YoutubeDL", FakeDownloader):
+            app.download_public_media(
+                1, "https://www.youtube.com/watch?v=rrFm3Npiabg", directory)
+
+        self.assertEqual(captured["format"], "b[ext=mp4]/b/bv*+ba")
+        self.assertEqual(
+            captured["extractor_args"]["youtube"]["player_client"],
+            ["default", "web_safari"])
+
     def test_video_info_uses_download_user_agent(self):
         metadata = FakeResponse()
         metadata.text = (
