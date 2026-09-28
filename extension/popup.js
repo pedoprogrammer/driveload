@@ -1,4 +1,3 @@
-const API_BASE = "https://driveload.duckdns.org";
 const button = document.getElementById("download-btn");
 const buttonLabel = document.getElementById("button-label");
 const pageTitle = document.getElementById("page-title");
@@ -8,90 +7,55 @@ const statusText = document.getElementById("status");
 const message = document.getElementById("message");
 
 let currentTab = null;
+let busy = false;
 
-chrome.tabs.query({active: true, currentWindow: true}, ([tab]) => {
+Promise.all([
+  chrome.tabs.query({active: true, currentWindow: true}),
+  chrome.storage.local.get("downloadState")
+]).then(([[tab], stored]) => {
   currentTab = tab;
-  const supported = Boolean(tab?.url && /^https?:\/\//.test(tab.url));
   pageTitle.textContent = tab?.title || "Current browser tab";
-  button.disabled = !supported;
+  renderState(stored.downloadState);
+  const supported = Boolean(tab?.url && /^https?:\/\//.test(tab.url));
+  button.disabled = busy || !supported;
   if (!supported) showMessage("Open a public video page, then press the extension again.", true);
 });
 
-button.addEventListener("click", async () => {
-  if (!currentTab?.url) return;
-  setBusy(true);
-  try {
-    const cookies = currentTab.url.includes("youtube.com")
-      ? await chrome.cookies.getAll({url: currentTab.url})
-      : [];
-    const response = await fetch(`${API_BASE}/api/v1/guest/download`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        url: currentTab.url,
-        cookies: cookies.map(cookie => ({
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: cookie.path,
-          secure: cookie.secure,
-          expirationDate: cookie.expirationDate
-        }))
-      })
-    });
-    const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.message || "Could not start download");
-    await waitForDownload(result.job_id);
-  } catch (error) {
-    setBusy(false);
-    showMessage(cleanError(error.message), true);
-  }
+chrome.storage.onChanged.addListener(changes => {
+  if (changes.downloadState) renderState(changes.downloadState.newValue);
 });
 
-async function waitForDownload(jobId) {
-  for (;;) {
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    const response = await fetch(`${API_BASE}/api/v1/guest/status/${jobId}`);
-    const result = await response.json();
-    if (!response.ok || !result.ok || result.error) {
-      throw new Error(result.message || result.status || "Download failed");
-    }
-    const percent = Math.max(2, Math.min(100, Number(result.progress) || 2));
-    progressFill.style.width = `${percent}%`;
-    statusText.textContent = result.status || "Downloading...";
-    if (result.ready) {
-      await chrome.downloads.download({
-        url: `${API_BASE}/api/v1/guest/file/${jobId}`,
-        filename: result.filename || undefined,
-        saveAs: false
-      });
-      setBusy(false);
-      showMessage("Saved to your Chrome Downloads folder.", false);
-      buttonLabel.textContent = "Download again";
-      return;
-    }
-  }
-}
+button.addEventListener("click", async () => {
+  if (!currentTab?.url || busy) return;
+  const cookies = currentTab.url.includes("youtube.com")
+    ? await chrome.cookies.getAll({url: currentTab.url})
+    : [];
+  await chrome.runtime.sendMessage({
+    type: "start-download",
+    url: currentTab.url,
+    cookies: cookies.map(cookie => ({
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      secure: cookie.secure,
+      expirationDate: cookie.expirationDate
+    }))
+  });
+});
 
-function setBusy(busy) {
-  button.disabled = busy;
+function renderState(state) {
+  if (!state) return;
+  busy = Boolean(state.busy);
+  button.disabled = busy || !currentTab?.url;
+  buttonLabel.textContent = busy ? "Downloading..." : "Download video";
   progress.classList.toggle("hidden", !busy);
-  message.classList.add("hidden");
-  if (busy) {
-    buttonLabel.textContent = "Downloading...";
-    progressFill.style.width = "2%";
-    statusText.textContent = "Reading this page...";
-  }
+  progressFill.style.width = `${state.progress || 2}%`;
+  statusText.textContent = state.status || "Downloading...";
+  if (!busy && state.status) showMessage(state.status, Boolean(state.error));
 }
 
 function showMessage(text, isError) {
   message.textContent = text;
   message.className = `message ${isError ? "error" : "success"}`;
-}
-
-function cleanError(text) {
-  return String(text || "Download failed")
-    .replace(/^ERROR:\s*/i, "")
-    .replace(/\s*\[.*?\]\s*/g, " ")
-    .trim();
 }
