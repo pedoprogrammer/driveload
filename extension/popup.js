@@ -1,6 +1,7 @@
 const button = document.getElementById("download-btn");
 const buttonLabel = document.getElementById("button-label");
 const pageTitle = document.getElementById("page-title");
+const filenameInput = document.getElementById("filename");
 const progress = document.getElementById("progress");
 const progressFill = document.getElementById("progress-fill");
 const progressValue = document.getElementById("progress-value");
@@ -20,6 +21,8 @@ Promise.all([
 ]).then(([[tab], stored]) => {
   currentTab = tab;
   pageTitle.textContent = tab?.title || "Current browser tab";
+  filenameInput.value = stored.downloadState?.requestedFilename
+    || suggestedFilename(tab?.title || "video");
   renderState(stored.downloadState);
   const supported = Boolean(tab?.url && /^https?:\/\//.test(tab.url));
   button.disabled = busy || !supported;
@@ -51,6 +54,7 @@ button.addEventListener("click", async () => {
     type: "start-download",
     url: mediaUrl,
     sourceUrl: currentTab.url,
+    filename: filenameInput.value,
     cookies: cookies.map(cookie => ({
       name: cookie.name,
       value: cookie.value,
@@ -106,6 +110,7 @@ function renderState(state) {
   if (!state) return;
   busy = Boolean(state.busy);
   button.disabled = busy || !currentTab?.url;
+  filenameInput.disabled = busy;
   buttonLabel.textContent = busy ? "Downloading..." : "Download video";
   progress.classList.toggle("hidden", !busy);
   const paused = Boolean(state.paused);
@@ -124,6 +129,15 @@ function renderState(state) {
   } else if (state.status) {
     showMessage(state.status, Boolean(state.error));
   }
+}
+
+function suggestedFilename(title) {
+  const cleaned = String(title || "video")
+    .replace(/\s+-\s+YouTube\s*$/i, "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || "video";
 }
 
 function showMessage(text, isError) {

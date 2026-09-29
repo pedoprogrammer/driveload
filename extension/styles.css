@@ -76,6 +76,35 @@ main { padding: 18px; }
   white-space: nowrap;
 }
 
+.filename-field {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.filename-field .eyebrow {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.filename-field input {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid #c9d8d5;
+  border-radius: 6px;
+  outline: none;
+  color: #163036;
+  background: #ffffff;
+  font: 600 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.filename-field input:focus {
+  border-color: #087f73;
+  box-shadow: 0 0 0 3px rgb(8 127 115 / 12%);
+}
+
+.filename-field input:disabled { color: #708489; background: #edf2f1; }
+
 button {
   display: flex;
   width: 100%;

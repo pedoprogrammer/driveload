@@ -4,7 +4,8 @@ let fastPollRunning = false;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "start-download") {
-    startDownload(message.url, message.cookies || [], message.sourceUrl || message.url);
+    startDownload(message.url, message.cookies || [], message.sourceUrl || message.url,
+                  message.filename || "");
     sendResponse({ok: true});
     return false;
   }
@@ -43,9 +44,11 @@ async function restorePolling() {
   }
 }
 
-async function startDownload(url, cookies, sourceUrl) {
+async function startDownload(url, cookies, sourceUrl, requestedFilename) {
+  requestedFilename = cleanFilename(requestedFilename);
   await setState({busy: true, paused: false, progress: 1,
-                  status: "Reading this page...", error: false});
+                  status: "Reading this page...", error: false,
+                  requestedFilename});
   try {
     const response = await fetch(`${API_BASE}/api/v1/guest/download`, {
       method: "POST",
@@ -54,7 +57,7 @@ async function startDownload(url, cookies, sourceUrl) {
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.message || "Could not start download");
-    await chrome.storage.local.set({activeJob: {jobId: result.job_id}});
+    await chrome.storage.local.set({activeJob: {jobId: result.job_id, requestedFilename}});
     await ensureAlarm();
     startFastPolling();
   } catch (error) {
@@ -111,15 +114,17 @@ async function pollOnce() {
       return false;
     }
     if (result.ready) {
+      const filename = finalFilename(activeJob.requestedFilename, result.filename);
       await chrome.storage.local.remove("activeJob");
       await chrome.alarms.clear(POLL_ALARM);
       await chrome.downloads.download({
         url: `${API_BASE}/api/v1/guest/file/${activeJob.jobId}`,
-        filename: result.filename || undefined,
+        filename,
         saveAs: false
       });
       await setState({busy: false, paused: false, error: false, progress: 100,
-                      status: "Saved to your Chrome Downloads folder."});
+                      requestedFilename: activeJob.requestedFilename || "",
+                      status: `Saved as ${filename}`});
       return false;
     }
     await chrome.storage.local.set({activeJob: {...activeJob, progress}});
@@ -171,4 +176,22 @@ function cleanError(text) {
     .replace(/^ERROR:\s*/i, "")
     .replace(/\s*\[.*?\]\s*/g, " ")
     .trim();
+}
+
+function cleanFilename(value) {
+  return String(value || "")
+    .replace(/[\\/:*?"<>|]/g, " ")
+    .replace(/[. ]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+}
+
+function finalFilename(requested, automatic) {
+  const fallback = cleanFilename(automatic) || "video.mp4";
+  const custom = cleanFilename(requested);
+  if (!custom) return fallback;
+  if (/\.[a-z0-9]{2,5}$/i.test(custom)) return custom;
+  const extension = fallback.match(/(\.[a-z0-9]{2,5})$/i)?.[1] || ".mp4";
+  return `${custom}${extension}`;
 }
