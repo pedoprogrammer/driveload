@@ -119,6 +119,27 @@ button:disabled { cursor: not-allowed; opacity: .52; box-shadow: none; }
 .track { height: 6px; overflow: hidden; border-radius: 3px; background: #dce7e4; }
 #progress-fill { width: 0; height: 100%; background: #2abda9; transition: width .25s; }
 
+.download-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.download-controls button {
+  height: 36px;
+  gap: 7px;
+  border: 1px solid #cbdad7;
+  border-radius: 6px;
+  box-shadow: none;
+  font-size: 11px;
+}
+
+.download-controls .secondary { color: #315c62; background: #eef5f3; }
+.download-controls .secondary:hover:not(:disabled) { background: #e2efec; }
+.download-controls .danger { color: #9a3030; border-color: #efc2c2; background: #fff3f3; }
+.download-controls .danger:hover:not(:disabled) { background: #ffe7e7; }
+
 .message {
   margin: 13px 0 0;
   padding: 10px 11px;

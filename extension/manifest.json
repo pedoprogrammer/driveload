@@ -3,7 +3,7 @@
   "name": "DriveLoad",
   "version": "2.1.0",
   "description": "One-click downloads for public, non-DRM videos on supported websites.",
-  "permissions": ["activeTab", "tabs", "downloads", "cookies", "storage", "scripting"],
+  "permissions": ["activeTab", "tabs", "downloads", "cookies", "storage", "scripting", "alarms"],
   "host_permissions": [
     "https://driveload.duckdns.org/*",
     "https://*.youtube.com/*"

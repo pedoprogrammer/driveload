@@ -84,6 +84,78 @@ class DownloadFileTests(unittest.TestCase):
         self.assertEqual(third.status_code, 429)
         self.assertIn("already running", third.get_json()["message"])
 
+    def test_guest_download_pause_resume_and_cancel(self):
+        job_id = "control-test"
+        app._guest_jobs.clear()
+        app._guest_jobs[job_id] = {
+            "status": "Downloading video...", "progress": 24,
+            "ready": False, "error": False, "cancelled": False,
+            "paused": False, "control": "running", "worker_running": True,
+            "url": "https://example.com/video", "source_url": "", "cookies": [],
+        }
+        with app.app.test_client() as client:
+            paused = client.post(f"/api/v1/guest/control/{job_id}",
+                                 json={"action": "pause"})
+            self.assertEqual(paused.status_code, 200)
+            self.assertTrue(paused.get_json()["paused"])
+
+            waiting = client.post(f"/api/v1/guest/control/{job_id}",
+                                  json={"action": "resume"})
+            self.assertEqual(waiting.status_code, 409)
+
+            app._guest_jobs[job_id]["worker_running"] = False
+            with patch.object(app.threading, "Thread") as thread:
+                resumed = client.post(f"/api/v1/guest/control/{job_id}",
+                                      json={"action": "resume"})
+            self.assertEqual(resumed.status_code, 200)
+            thread.assert_called_once()
+
+            app._guest_jobs[job_id]["worker_running"] = False
+            cancelled = client.post(f"/api/v1/guest/control/{job_id}",
+                                    json={"action": "cancel"})
+            self.assertEqual(cancelled.status_code, 200)
+            self.assertTrue(cancelled.get_json()["cancelled"])
+
+    def test_separate_audio_progress_uses_second_half(self):
+        updates = []
+
+        class FakeDownloader:
+            def __init__(self, options):
+                self.options = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def extract_info(self, _url, download=True):
+                self.options["progress_hooks"][0]({
+                    "status": "downloading",
+                    "downloaded_bytes": 25,
+                    "total_bytes": 100,
+                    "filename": "/tmp/video.faudio-English.mp4",
+                    "info_dict": {"vcodec": "none", "format_id": "audio-English"},
+                })
+                output = self.options["outtmpl"].replace(
+                    "%(title).180B", "sample").replace("%(id)s", "42").replace(
+                        "%(ext)s", "mp4")
+                with open(output, "wb") as handle:
+                    handle.write(b"public-video")
+
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("93.184.216.34", 443))]
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app, "YoutubeDL", FakeDownloader):
+            app.download_public_media(
+                1, "https://example.com/video", directory,
+                status_callback=lambda status, progress: updates.append((status, progress)),
+                control_callback=lambda: None)
+
+        self.assertEqual(updates[-1][1], 62.5)
+        self.assertIn("audio", updates[-1][0])
+
     def test_guest_extension_rejects_google_drive(self):
         with app.app.test_client() as client:
             response = client.post("/api/v1/guest/download", json={

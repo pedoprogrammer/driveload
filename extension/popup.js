@@ -6,6 +6,10 @@ const progressFill = document.getElementById("progress-fill");
 const progressValue = document.getElementById("progress-value");
 const statusText = document.getElementById("status");
 const message = document.getElementById("message");
+const pauseButton = document.getElementById("pause-btn");
+const pauseIcon = document.getElementById("pause-icon");
+const pauseLabel = document.getElementById("pause-label");
+const cancelButton = document.getElementById("cancel-btn");
 
 let currentTab = null;
 let busy = false;
@@ -20,6 +24,15 @@ Promise.all([
   const supported = Boolean(tab?.url && /^https?:\/\//.test(tab.url));
   button.disabled = busy || !supported;
   if (!supported) showMessage("Open a public video page, then press the extension again.", true);
+  chrome.runtime.sendMessage({type: "poll-now"});
+});
+
+pauseButton.addEventListener("click", () => {
+  chrome.runtime.sendMessage({type: "control-download", action: pauseButton.dataset.action});
+});
+
+cancelButton.addEventListener("click", () => {
+  chrome.runtime.sendMessage({type: "control-download", action: "cancel"});
 });
 
 chrome.storage.onChanged.addListener(changes => {
@@ -95,6 +108,11 @@ function renderState(state) {
   button.disabled = busy || !currentTab?.url;
   buttonLabel.textContent = busy ? "Downloading..." : "Download video";
   progress.classList.toggle("hidden", !busy);
+  const paused = Boolean(state.paused);
+  pauseButton.dataset.action = paused ? "resume" : "pause";
+  pauseIcon.textContent = paused ? "▶" : "Ⅱ";
+  pauseLabel.textContent = paused ? "Resume" : "Pause";
+  cancelButton.disabled = Boolean(state.cancelling);
   const percent = Math.max(0, Math.min(100, Math.round(Number(state.progress) || 0)));
   progressFill.style.width = `${percent}%`;
   progressValue.textContent = `${percent}%`;

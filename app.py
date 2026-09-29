@@ -224,7 +224,7 @@ def validate_public_media_url(url):
 
 
 def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=None,
-                          browser_cookies=None, source_url=None):
+                          browser_cookies=None, source_url=None, control_callback=None):
     """Download one public, non-DRM media item using yt-dlp."""
     validate_public_media_url(url)
     output_dir = Path(output_dir)
@@ -233,13 +233,24 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
     def progress_hook(data):
         if data.get("status") != "downloading":
             return
+        if control_callback:
+            control_callback()
         downloaded = data.get("downloaded_bytes", 0)
         total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
         progress = min(downloaded / total * 100, 99) if total else 1
+        filename = Path(data.get("filename") or "").name.lower()
+        info = data.get("info_dict") or {}
+        separate_stream = ".f" in filename
+        audio_stream = (info.get("vcodec") == "none"
+                        or "audio" in str(info.get("format_id", "")).lower()
+                        or ".faudio" in filename)
+        phase = "audio" if audio_stream else "video"
+        if separate_stream:
+            progress = 50 + progress / 2 if audio_stream else progress / 2
         if max_bytes and downloaded > max_bytes:
             raise RuntimeError("This video exceeds the 500 MB extension limit")
         if status_callback:
-            status_callback(f"Downloading media... {progress:.1f}%", progress)
+            status_callback(f"Downloading {phase}... {progress:.1f}%", progress)
         else:
             _set_status(uid, f"Downloading media... {progress:.1f}%", progress)
 
@@ -271,6 +282,7 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
         "progress_hooks": [progress_hook],
         "quiet": True,
         "no_warnings": True,
+        "continuedl": True,
     }
     hostname = (urlparse(url).hostname or "").lower()
     if hostname == "youtu.be" or hostname.endswith(".youtube.com"):
@@ -1074,22 +1086,47 @@ def _guest_status(job_id, status, progress=None, **updates):
         job.update(updates)
 
 
-def _guest_worker(job_id, url, cookies, source_url):
+def _guest_worker(job_id):
     output_dir = TEMP_DOWNLOAD_DIR / "guest" / job_id
+    with _lock:
+        job = _guest_jobs.get(job_id)
+        if not job or job.get("control") != "running":
+            return
+        job["worker_running"] = True
+        url = job["url"]
+        cookies = job["cookies"]
+        source_url = job["source_url"]
     try:
         def update(status, progress):
             _guest_status(job_id, status, progress)
 
+        def check_control():
+            with _lock:
+                current = _guest_jobs.get(job_id)
+                control = current.get("control") if current else "cancelled"
+            if control != "running":
+                raise RuntimeError("Download interrupted by user")
+
         filename, path, _size_mb = download_public_media(
             job_id, url, output_dir, status_callback=update,
             max_bytes=GUEST_MAX_BYTES, browser_cookies=cookies,
-            source_url=source_url)
+            source_url=source_url, control_callback=check_control)
         _guest_status(job_id, "Ready to save", 100, ready=True,
-                      filename=filename, path=path)
+                      filename=filename, path=path, worker_running=False)
     except Exception as exc:
-        shutil.rmtree(output_dir, ignore_errors=True)
-        app.logger.warning("Guest media download failed: %s", exc)
-        _guest_status(job_id, str(exc), 0, error=True)
+        with _lock:
+            job = _guest_jobs.get(job_id)
+            control = job.get("control") if job else "cancelled"
+        if control == "paused":
+            _guest_status(job_id, "Paused", paused=True, worker_running=False)
+        elif control == "cancelled":
+            shutil.rmtree(output_dir, ignore_errors=True)
+            _guest_status(job_id, "Download cancelled", cancelled=True,
+                          worker_running=False)
+        else:
+            shutil.rmtree(output_dir, ignore_errors=True)
+            app.logger.warning("Guest media download failed: %s", exc)
+            _guest_status(job_id, str(exc), 0, error=True, worker_running=False)
 
 
 @app.route("/api/v1/guest/download", methods=["POST"])
@@ -1120,6 +1157,7 @@ def api_guest_download():
             job.get("client_ip") == client_ip
             and not job.get("ready")
             and not job.get("error")
+            and not job.get("cancelled")
             for job in _guest_jobs.values()
         )
         if active_jobs >= GUEST_MAX_ACTIVE_PER_IP:
@@ -1130,10 +1168,12 @@ def api_guest_download():
             "status": "Reading this page...", "progress": 0,
             "ready": False, "error": False, "created": now,
             "client_ip": client_ip,
+            "control": "running", "paused": False,
+            "cancelled": False, "worker_running": False,
+            "url": url, "source_url": source_url, "cookies": cookies,
         }
 
-    threading.Thread(target=_guest_worker,
-                     args=(job_id, url, cookies, source_url), daemon=True).start()
+    threading.Thread(target=_guest_worker, args=(job_id,), daemon=True).start()
     return jsonify(ok=True, job_id=job_id)
 
 
@@ -1145,7 +1185,42 @@ def api_guest_status(job_id):
             return jsonify(ok=False, message="Download job not found"), 404
         return jsonify(ok=True, status=job["status"], progress=job["progress"],
                        ready=job.get("ready", False), error=job.get("error", False),
+                       paused=job.get("paused", False),
+                       cancelled=job.get("cancelled", False),
                        filename=job.get("filename"))
+
+
+@app.route("/api/v1/guest/control/<job_id>", methods=["POST"])
+def api_guest_control(job_id):
+    action = (request.get_json(silent=True) or {}).get("action")
+    with _lock:
+        job = _guest_jobs.get(job_id)
+        if not job:
+            return jsonify(ok=False, message="Download job not found"), 404
+        if job.get("ready") or job.get("error") or job.get("cancelled"):
+            return jsonify(ok=False, message="This download is already finished"), 409
+        if action == "pause":
+            job.update(control="paused", paused=True, status="Pausing...")
+            return jsonify(ok=True, status=job["status"], paused=True)
+        if action == "resume":
+            if not job.get("paused"):
+                return jsonify(ok=False, message="This download is not paused"), 409
+            if job.get("worker_running"):
+                return jsonify(ok=False, message="Wait a moment while the download pauses"), 409
+            job.update(control="running", paused=False, status="Resuming...", error=False)
+        elif action == "cancel":
+            job.update(control="cancelled", paused=False, cancelled=True,
+                       status="Cancelling...")
+            if not job.get("worker_running"):
+                shutil.rmtree(TEMP_DOWNLOAD_DIR / "guest" / job_id,
+                              ignore_errors=True)
+                job["status"] = "Download cancelled"
+            return jsonify(ok=True, status=job["status"], cancelled=True)
+        else:
+            return jsonify(ok=False, message="Invalid download action"), 400
+
+    threading.Thread(target=_guest_worker, args=(job_id,), daemon=True).start()
+    return jsonify(ok=True, status="Resuming...", paused=False)
 
 
 @app.route("/api/v1/guest/file/<job_id>")
