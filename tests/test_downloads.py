@@ -168,6 +168,38 @@ class DownloadFileTests(unittest.TestCase):
             captured["extractor_args"]["youtube"]["player_client"],
             ["default", "web_safari"])
 
+    def test_embedded_media_uses_lesson_page_as_referer(self):
+        captured = {}
+
+        class FakeDownloader:
+            def __init__(self, options):
+                captured.update(options)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                pass
+
+            def extract_info(self, _url, download=True):
+                output = captured["outtmpl"].replace(
+                    "%(title).180B", "lesson").replace("%(id)s", "42").replace(
+                        "%(ext)s", "mp4")
+                with open(output, "wb") as handle:
+                    handle.write(b"lesson-video")
+
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("93.184.216.34", 443))]
+        lesson_url = "https://learn.example.com/course/lesson"
+        with tempfile.TemporaryDirectory() as directory, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app, "YoutubeDL", FakeDownloader):
+            app.download_public_media(
+                1, "https://media.example.com/master.m3u8", directory,
+                source_url=lesson_url)
+
+        self.assertEqual(captured["http_headers"], {"Referer": lesson_url})
+
     def test_video_info_uses_download_user_agent(self):
         metadata = FakeResponse()
         metadata.text = (

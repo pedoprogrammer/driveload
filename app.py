@@ -224,7 +224,7 @@ def validate_public_media_url(url):
 
 
 def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=None,
-                          browser_cookies=None):
+                          browser_cookies=None, source_url=None):
     """Download one public, non-DRM media item using yt-dlp."""
     validate_public_media_url(url)
     output_dir = Path(output_dir)
@@ -283,6 +283,10 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
         options["max_filesize"] = max_bytes
     if cookie_path:
         options["cookiefile"] = str(cookie_path)
+    if source_url:
+        parsed_source = urlparse(source_url)
+        if parsed_source.scheme in ("http", "https") and parsed_source.hostname:
+            options["http_headers"] = {"Referer": source_url}
     before = set(output_dir.iterdir())
     try:
         with YoutubeDL(options) as downloader:
@@ -1070,7 +1074,7 @@ def _guest_status(job_id, status, progress=None, **updates):
         job.update(updates)
 
 
-def _guest_worker(job_id, url, cookies):
+def _guest_worker(job_id, url, cookies, source_url):
     output_dir = TEMP_DOWNLOAD_DIR / "guest" / job_id
     try:
         def update(status, progress):
@@ -1078,7 +1082,8 @@ def _guest_worker(job_id, url, cookies):
 
         filename, path, _size_mb = download_public_media(
             job_id, url, output_dir, status_callback=update,
-            max_bytes=GUEST_MAX_BYTES, browser_cookies=cookies)
+            max_bytes=GUEST_MAX_BYTES, browser_cookies=cookies,
+            source_url=source_url)
         _guest_status(job_id, "Ready to save", 100, ready=True,
                       filename=filename, path=path)
     except Exception as exc:
@@ -1091,6 +1096,7 @@ def _guest_worker(job_id, url, cookies):
 def api_guest_download():
     data = request.get_json(silent=True) or {}
     url = data.get("url", "").strip()
+    source_url = data.get("source_url", "").strip()
     cookies = data.get("cookies") or []
     if not url:
         return jsonify(ok=False, message="A page URL is required"), 400
@@ -1126,7 +1132,8 @@ def api_guest_download():
             "client_ip": client_ip,
         }
 
-    threading.Thread(target=_guest_worker, args=(job_id, url, cookies), daemon=True).start()
+    threading.Thread(target=_guest_worker,
+                     args=(job_id, url, cookies, source_url), daemon=True).start()
     return jsonify(ok=True, job_id=job_id)
 
 

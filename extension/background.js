@@ -2,18 +2,18 @@ const API_BASE = "https://driveload.duckdns.org";
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type !== "start-download") return false;
-  startDownload(message.url, message.cookies || []);
+  startDownload(message.url, message.cookies || [], message.sourceUrl || message.url);
   sendResponse({ok: true});
   return false;
 });
 
-async function startDownload(url, cookies) {
+async function startDownload(url, cookies, sourceUrl) {
   await setState({busy: true, progress: 2, status: "Reading this page...", error: false});
   try {
     const response = await fetch(`${API_BASE}/api/v1/guest/download`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({url, cookies})
+      body: JSON.stringify({url, cookies, source_url: sourceUrl})
     });
     const result = await response.json();
     if (!response.ok || !result.ok) throw new Error(result.message || "Could not start download");
