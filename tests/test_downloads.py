@@ -119,10 +119,12 @@ class DownloadFileTests(unittest.TestCase):
     def test_separate_audio_progress_uses_second_half(self):
         updates = []
         metadata = []
+        downloader_options = []
 
         class FakeDownloader:
             def __init__(self, options):
                 self.options = options
+                downloader_options.append(options)
 
             def __enter__(self):
                 return self
@@ -160,6 +162,7 @@ class DownloadFileTests(unittest.TestCase):
         self.assertEqual(metadata[-1]["downloaded_bytes"], 25)
         self.assertEqual(metadata[-1]["total_bytes"], 100)
         self.assertEqual(metadata[-1]["phase"], "audio")
+        self.assertEqual(downloader_options[-1]["concurrent_fragment_downloads"], 4)
 
     def test_guest_extension_rejects_google_drive(self):
         with app.app.test_client() as client:

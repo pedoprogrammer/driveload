@@ -294,6 +294,11 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
         "restrictfilenames": True,
         "outtmpl": str(output_dir / "%(title).180B-%(id)s.%(ext)s"),
         "progress_hooks": [progress_hook],
+        # HLS/DASH sources contain hundreds of small fragments. A small bounded
+        # pool removes per-request latency without overwhelming the source or VM.
+        "concurrent_fragment_downloads": 4,
+        "fragment_retries": 5,
+        "retries": 3,
         "quiet": True,
         "no_warnings": True,
         "continuedl": True,
