@@ -140,8 +140,7 @@ def load_user(uid):
 _states: dict = {}
 _lock = threading.Lock()
 _guest_jobs: dict = {}
-_guest_attempts: dict = {}
-GUEST_LIMIT_PER_HOUR = 3
+GUEST_MAX_ACTIVE_PER_IP = 2
 GUEST_MAX_BYTES = 500 * 1024 * 1024
 
 def _get_state(uid):
@@ -1107,17 +1106,24 @@ def api_guest_download():
     client_ip = request.remote_addr or "unknown"
     now = time.time()
     with _lock:
-        recent = [stamp for stamp in _guest_attempts.get(client_ip, [])
-                  if now - stamp < 3600]
-        if len(recent) >= GUEST_LIMIT_PER_HOUR:
+        stale_ids = [job_id for job_id, job in _guest_jobs.items()
+                     if now - job.get("created", now) > 7200]
+        for stale_id in stale_ids:
+            _guest_jobs.pop(stale_id, None)
+        active_jobs = sum(
+            job.get("client_ip") == client_ip
+            and not job.get("ready")
+            and not job.get("error")
+            for job in _guest_jobs.values()
+        )
+        if active_jobs >= GUEST_MAX_ACTIVE_PER_IP:
             return jsonify(ok=False,
-                           message="Extension limit reached: try again in one hour"), 429
-        recent.append(now)
-        _guest_attempts[client_ip] = recent
+                           message="Two downloads are already running. Try again when one finishes."), 429
         job_id = secrets.token_urlsafe(24)
         _guest_jobs[job_id] = {
             "status": "Reading this page...", "progress": 0,
             "ready": False, "error": False, "created": now,
+            "client_ip": client_ip,
         }
 
     threading.Thread(target=_guest_worker, args=(job_id, url, cookies), daemon=True).start()

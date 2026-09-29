@@ -3,6 +3,7 @@ const buttonLabel = document.getElementById("button-label");
 const pageTitle = document.getElementById("page-title");
 const progress = document.getElementById("progress");
 const progressFill = document.getElementById("progress-fill");
+const progressValue = document.getElementById("progress-value");
 const statusText = document.getElementById("status");
 const message = document.getElementById("message");
 
@@ -50,7 +51,9 @@ function renderState(state) {
   button.disabled = busy || !currentTab?.url;
   buttonLabel.textContent = busy ? "Downloading..." : "Download video";
   progress.classList.toggle("hidden", !busy);
-  progressFill.style.width = `${state.progress || 2}%`;
+  const percent = Math.max(0, Math.min(100, Math.round(Number(state.progress) || 0)));
+  progressFill.style.width = `${percent}%`;
+  progressValue.textContent = `${percent}%`;
   statusText.textContent = state.status || "Downloading...";
   if (!busy && state.status) showMessage(state.status, Boolean(state.error));
 }

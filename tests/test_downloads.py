@@ -36,7 +36,6 @@ class DownloadFileTests(unittest.TestCase):
     def test_guest_extension_starts_without_account_or_api_key(self):
         public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
                            ("93.184.216.34", 443))]
-        app._guest_attempts.clear()
         app._guest_jobs.clear()
         with app.app.test_client() as client, \
              patch.object(app.socket, "getaddrinfo", return_value=public_address), \
@@ -48,6 +47,42 @@ class DownloadFileTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.get_json()["ok"])
         thread.assert_called_once()
+
+    def test_guest_extension_allows_repeated_completed_downloads(self):
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("93.184.216.34", 443))]
+        app._guest_jobs.clear()
+        with app.app.test_client() as client, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app.threading, "Thread"):
+            for index in range(6):
+                response = client.post("/api/v1/guest/download", json={
+                    "url": f"https://example.com/public-video-{index}"
+                })
+                self.assertEqual(response.status_code, 200)
+                app._guest_jobs[response.get_json()["job_id"]]["ready"] = True
+
+    def test_guest_extension_limits_only_simultaneous_downloads(self):
+        public_address = [(app.socket.AF_INET, app.socket.SOCK_STREAM, 6, "",
+                           ("93.184.216.34", 443))]
+        app._guest_jobs.clear()
+        with app.app.test_client() as client, \
+             patch.object(app.socket, "getaddrinfo", return_value=public_address), \
+             patch.object(app.threading, "Thread"):
+            first = client.post("/api/v1/guest/download", json={
+                "url": "https://example.com/public-video-1"
+            })
+            second = client.post("/api/v1/guest/download", json={
+                "url": "https://example.com/public-video-2"
+            })
+            third = client.post("/api/v1/guest/download", json={
+                "url": "https://example.com/public-video-3"
+            })
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(third.status_code, 429)
+        self.assertIn("already running", third.get_json()["message"])
 
     def test_guest_extension_rejects_google_drive(self):
         with app.app.test_client() as client:

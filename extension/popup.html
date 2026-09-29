@@ -8,32 +8,38 @@
 </head>
 <body>
   <header>
-    <img src="icons/icon48.png" alt=""/>
-    <div>
+    <div class="brand-mark"><img src="icons/icon48.png" alt=""/></div>
+    <div class="brand-copy">
       <strong>DriveLoad</strong>
-      <span>Public video downloader</span>
+      <span>Video downloader</span>
     </div>
-    <b>2.1</b>
+    <span class="version">v2.1</span>
   </header>
 
   <main>
-    <div class="page">
-      <span>Current page</span>
+    <section class="page">
+      <span class="eyebrow">Current page</span>
       <p id="page-title">Checking this tab...</p>
-    </div>
+    </section>
 
     <button id="download-btn" disabled>
-      <span class="button-icon">↓</span>
+      <span class="button-icon" aria-hidden="true">↓</span>
       <span id="button-label">Download video</span>
     </button>
 
     <section id="progress" class="hidden" aria-live="polite">
+      <div class="progress-copy">
+        <p id="status">Starting...</p>
+        <span id="progress-value">0%</span>
+      </div>
       <div class="track"><div id="progress-fill"></div></div>
-      <p id="status">Starting...</p>
     </section>
 
     <p id="message" class="message hidden" aria-live="polite"></p>
-    <p class="note">Public, non-DRM media only. Maximum 500 MB.</p>
+    <footer>
+      <span>Public, non-DRM media</span>
+      <span>Up to 500 MB</span>
+    </footer>
   </main>
 
   <script src="popup.js"></script>
