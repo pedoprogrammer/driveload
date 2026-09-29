@@ -224,7 +224,8 @@ def validate_public_media_url(url):
 
 
 def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=None,
-                          browser_cookies=None, source_url=None, control_callback=None):
+                          browser_cookies=None, source_url=None, control_callback=None,
+                          metadata_callback=None):
     """Download one public, non-DRM media item using yt-dlp."""
     validate_public_media_url(url)
     output_dir = Path(output_dir)
@@ -249,6 +250,19 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
             progress = 50 + progress / 2 if audio_stream else progress / 2
         if max_bytes and downloaded > max_bytes:
             raise RuntimeError("This video exceeds the 500 MB extension limit")
+        if metadata_callback:
+            width = info.get("width")
+            height = info.get("height")
+            metadata_callback({
+                "phase": phase,
+                "downloaded_bytes": downloaded,
+                "total_bytes": total,
+                "speed": data.get("speed") or 0,
+                "eta": data.get("eta"),
+                "format": info.get("ext") or info.get("format_id") or "",
+                "resolution": (f"{width}x{height}" if width and height
+                               else info.get("resolution") or ""),
+            })
         if status_callback:
             status_callback(f"Downloading {phase}... {progress:.1f}%", progress)
         else:
@@ -1080,7 +1094,8 @@ def _guest_status(job_id, status, progress=None, **updates):
         job = _guest_jobs.get(job_id)
         if not job:
             return
-        job["status"] = status
+        if status is not None:
+            job["status"] = status
         if progress is not None:
             job["progress"] = round(progress, 1)
         job.update(updates)
@@ -1107,10 +1122,14 @@ def _guest_worker(job_id):
             if control != "running":
                 raise RuntimeError("Download interrupted by user")
 
+        def update_metadata(details):
+            _guest_status(job_id, None, **details)
+
         filename, path, _size_mb = download_public_media(
             job_id, url, output_dir, status_callback=update,
             max_bytes=GUEST_MAX_BYTES, browser_cookies=cookies,
-            source_url=source_url, control_callback=check_control)
+            source_url=source_url, control_callback=check_control,
+            metadata_callback=update_metadata)
         _guest_status(job_id, "Ready to save", 100, ready=True,
                       filename=filename, path=path, worker_running=False)
     except Exception as exc:
@@ -1187,7 +1206,12 @@ def api_guest_status(job_id):
                        ready=job.get("ready", False), error=job.get("error", False),
                        paused=job.get("paused", False),
                        cancelled=job.get("cancelled", False),
-                       filename=job.get("filename"))
+                       filename=job.get("filename"), phase=job.get("phase"),
+                       downloaded_bytes=job.get("downloaded_bytes", 0),
+                       total_bytes=job.get("total_bytes", 0),
+                       speed=job.get("speed", 0), eta=job.get("eta"),
+                       format=job.get("format", ""),
+                       resolution=job.get("resolution", ""))
 
 
 @app.route("/api/v1/guest/control/<job_id>", methods=["POST"])

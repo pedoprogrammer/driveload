@@ -6,6 +6,12 @@ const progress = document.getElementById("progress");
 const progressFill = document.getElementById("progress-fill");
 const progressValue = document.getElementById("progress-value");
 const statusText = document.getElementById("status");
+const downloadedSize = document.getElementById("downloaded-size");
+const totalSize = document.getElementById("total-size");
+const downloadSpeed = document.getElementById("download-speed");
+const downloadEta = document.getElementById("download-eta");
+const mediaFormat = document.getElementById("media-format");
+const mediaResolution = document.getElementById("media-resolution");
 const message = document.getElementById("message");
 const pauseButton = document.getElementById("pause-btn");
 const pauseIcon = document.getElementById("pause-icon");
@@ -123,12 +129,35 @@ function renderState(state) {
   progressValue.textContent = `${percent}%`;
   statusText.textContent = String(state.status || "Downloading...")
     .replace(/\s+\d+(?:\.\d+)?%$/, "");
+  downloadedSize.textContent = formatBytes(state.downloadedBytes) || "Starting...";
+  totalSize.textContent = formatBytes(state.totalBytes) || "Estimating...";
+  downloadSpeed.textContent = state.speed ? `${formatBytes(state.speed)}/s` : "--";
+  downloadEta.textContent = formatDuration(state.eta);
+  mediaFormat.textContent = String(state.format || "Detecting...").toUpperCase();
+  mediaResolution.textContent = state.resolution || "Detecting...";
   if (busy) {
     message.className = "message hidden";
     message.textContent = "";
   } else if (state.status) {
     showMessage(state.status, Boolean(state.error));
   }
+}
+
+function formatBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const amount = bytes / (1024 ** index);
+  return `${amount.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function formatDuration(value) {
+  const seconds = Math.max(0, Math.round(Number(value) || 0));
+  if (!seconds) return "--";
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes ? `${minutes}m ${remainder}s` : `${remainder}s`;
 }
 
 function suggestedFilename(title) {

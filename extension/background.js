@@ -134,7 +134,13 @@ async function pollOnce() {
       cancelling: false,
       error: false,
       progress,
-      status: result.status || "Downloading..."
+      status: result.status || "Downloading...",
+      downloadedBytes: result.downloaded_bytes || 0,
+      totalBytes: result.total_bytes || 0,
+      speed: result.speed || 0,
+      eta: result.eta,
+      format: result.format || "",
+      resolution: result.resolution || ""
     });
     return !result.paused;
   } catch (error) {
