@@ -126,6 +126,8 @@ button:disabled { cursor: not-allowed; opacity: .52; box-shadow: none; }
   border-radius: 6px;
   text-align: left;
   font-size: 11px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message.success { color: #075c52; border-color: #a8e4da; background: #e7f8f4; }

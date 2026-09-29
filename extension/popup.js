@@ -28,6 +28,8 @@ chrome.storage.onChanged.addListener(changes => {
 
 button.addEventListener("click", async () => {
   if (!currentTab?.url || busy) return;
+  message.className = "message hidden";
+  message.textContent = "";
   const mediaUrl = await discoverMediaUrl(currentTab.id, currentTab.url);
   const cookies = currentTab.url.includes("youtube.com")
     ? await chrome.cookies.getAll({url: currentTab.url})
@@ -96,8 +98,14 @@ function renderState(state) {
   const percent = Math.max(0, Math.min(100, Math.round(Number(state.progress) || 0)));
   progressFill.style.width = `${percent}%`;
   progressValue.textContent = `${percent}%`;
-  statusText.textContent = state.status || "Downloading...";
-  if (!busy && state.status) showMessage(state.status, Boolean(state.error));
+  statusText.textContent = String(state.status || "Downloading...")
+    .replace(/\s+\d+(?:\.\d+)?%$/, "");
+  if (busy) {
+    message.className = "message hidden";
+    message.textContent = "";
+  } else if (state.status) {
+    showMessage(state.status, Boolean(state.error));
+  }
 }
 
 function showMessage(text, isError) {
