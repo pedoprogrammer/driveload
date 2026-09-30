@@ -141,7 +141,7 @@ _states: dict = {}
 _lock = threading.Lock()
 _guest_jobs: dict = {}
 GUEST_MAX_ACTIVE_PER_IP = 2
-GUEST_MAX_BYTES = 500 * 1024 * 1024
+GUEST_MAX_BYTES = int(1.5 * 1024 * 1024 * 1024)
 
 def _get_state(uid):
     with _lock:
@@ -249,7 +249,9 @@ def download_public_media(uid, url, output_dir, status_callback=None, max_bytes=
         if separate_stream:
             progress = 50 + progress / 2 if audio_stream else progress / 2
         if max_bytes and downloaded > max_bytes:
-            raise RuntimeError("This video exceeds the 500 MB extension limit")
+            limit_gb = max_bytes / (1024 ** 3)
+            raise RuntimeError(
+                f"This video exceeds the {limit_gb:g} GB extension limit")
         if metadata_callback:
             width = info.get("width")
             height = info.get("height")
